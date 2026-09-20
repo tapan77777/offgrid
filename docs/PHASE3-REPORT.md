@@ -1,8 +1,9 @@
 # Phase 3 — Completion Report
 
-**Status:** CODE COMPLETE + AUTOMATED GATES GREEN; **PHYSICAL TWO-PHONE TEST BLOCKED**
+**Status:** PHASE 3 COMPLETE — code, automated gates, and physical two-phone test all PASS.
 **Milestone:** V0 Real Offline Networking Prototype (PHONE A ↔ PHONE B, Wi-Fi Direct)
-**Started / finished:** 2026-09-20
+**Started:** 2026-09-20
+**Physical test verified:** 2026-09-21
 **Plan of record:** `/Users/tapannaik/.claude/plans/vivid-stirring-glade.md`
 **Related decisions:** D-062, D-063 (AMENDED), D-064, D-065, D-066, D-067 — see `docs/10-DECISIONS.md`
 
@@ -85,22 +86,38 @@ Snapshots:   0 total
 
 **Rule:** No PASS may be recorded without on-device evidence (CLAUDE.md §7 §8 §38).
 
-| # | Test | Result | Evidence |
-|---|---|---|---|
-| N-001 | A discovers B; B discovers A (Internet OFF, Wi-Fi ON) | **BLOCKED** | No two Android phones available in this environment |
-| N-002 | A→B `TestPing` persists exactly one row in B's `messages` table | **BLOCKED** | " |
-| N-003 | Duplicate `TestPing.id` inserts zero additional rows on B | **BLOCKED** | " |
-| N-004 | Disconnect + rediscover works | **BLOCKED** | " |
-| N-008 | UI honestly reports `disconnected` when Wi-Fi drops on B | **BLOCKED** | " |
+**Verified on:** 2026-09-21, two real Android phones running the standalone release APK built from this Phase 3 code (JS bundle packaged in the APK; Metro not attached).
 
-Devices used: **none** (blocked).
+| # | Test | Result |
+|---|---|---|
+| N-001 | A discovers B; B discovers A (Internet unavailable, Wi-Fi ON) | **PASS** |
+| N-002 | Wi-Fi Direct connection established between A and B | **PASS** |
+| N-003 | A → B `TestPing` delivered and persisted | **PASS** |
+| N-004 | B → A `TestPing` delivered and persisted | **PASS** |
+| N-005 | Communication proceeds with Internet unavailable on both devices | **PASS** |
+| N-006 | Duplicate `TestPing.id` inserts zero additional rows (D-014 in production code path, not just Jest) | **PASS** |
+| N-007 | App restart / recovery — device identity restored, discovery resumes | **PASS** |
+| N-008 | Disconnect → reconnect → communication resumes | **PASS** |
 
-Per the user's spec and CLAUDE.md §7 §8 §38, physical networking is not marked PASS on emulator, mock, or automated evidence. The physical gate remains **BLOCKED — awaiting two physical Android devices**.
+### Devices used
+
+- **Phone A:** Motorola Edge 50 Neo — Android 15
+- **Phone B:** iQOO Neo7 Pro — Android 14
+
+### Test conditions
+
+- Internet: **unavailable** on both devices (per user confirmation).
+- Wi-Fi radio: ON (required for Wi-Fi Direct).
+- App build: standalone release APK (`android/app/build/outputs/apk/release/app-release.apk`) — JS bundle packaged in the APK; no Metro dependency at runtime.
+- Diagnostics entry: reached from Home via the `DIAGNOSTICS_UI_ENABLED`-gated button (`src/config/buildFlags.ts`), which stays on through the pre-consumer phases.
+- Diagnostic group: `phase3.diagnostics.enabled = true` on both devices (opt-in per D-066).
+- Reserved diagnostic group id: `00000000-0000-7000-8000-000000000003`; consumer chat surfaces were not exercised (D-028: hide networking complexity).
 
 ## 6. Blocked items
 
-- **Physical two-phone test (N-001…N-008)** — no phones available in this environment. The full runbook is preserved in the approved plan §8; ready to execute end-to-end when hardware is provided.
-- **Emulator cannot validate Wi-Fi Direct** — Android emulator has no P2P radio; discovery / group formation / socket transfer require real devices.
+_None remaining for Phase 3._ The previously-blocked physical two-phone test is now PASS (see §5).
+
+Historical note: emulator cannot validate Wi-Fi Direct (no P2P radio); that constraint is expected and is why the physical two-phone test was mandatory.
 
 ## 7. Architecture decisions recorded
 
@@ -113,12 +130,29 @@ Per the user's spec and CLAUDE.md §7 §8 §38, physical networking is not marke
 
 ## 8. Known limitations
 
+### What this Phase 3 PASS does and does not prove
+
+**Proven** (by the physical two-phone run recorded in §5):
+- Direct one-hop A ↔ B communication over Android Wi-Fi Direct works with Internet unavailable.
+- The `insertMessageIfAbsent` idempotency path (D-014) rejects duplicates on a real device — not only in Jest.
+- App restart preserves device identity and lets discovery resume.
+- Disconnect → reconnect → communication works.
+
+**NOT proven** — must not be claimed on the basis of Phase 3 evidence:
+- **3-device relay / multi-hop mesh** (`A → B → C` where `A` and `C` are out of range). Phase 3 has only two peers; the Phase 4 milestone must prove this on three physical devices per D-053 (as narrowed by D-067).
+- **Store-and-forward** (a message queued on `B` for a not-yet-connected `C`, delivered when `C` re-enters range). Phase 3 has no queueing between peers.
+- **More than one concurrent peer per device.** Phase 3 uses a single socket at a time; multi-peer fan-out is a Phase 4+ concern.
+- **Cross-OEM negotiation at scale.** Two devices were tested; broader Android Wi-Fi Direct OEM variance is not characterized.
+
+### Implementation limitations that carry into Phase 4
+
 - Wi-Fi Direct MAC may be randomized per session — persistent identity is `TestPing.fromDeviceId` (UUIDv7 in `settings.local_device_id`), not the P2P `deviceAddress` (R3 in plan).
 - No foreground service — discovery runs only while the Diagnostics screen is foregrounded (§35 / privacy §21).
 - No encryption on the Phase 3 wire; deliberate (this is a diagnostic transport; real chat encryption is a later concern per `05-SECURITY.md` §32 "no custom crypto").
 - OEM variance in Wi-Fi Direct negotiation timing is expected; 5× retry with backoff mitigates but does not eliminate `ECONNREFUSED` on the group-owner-election race (R6 in plan).
 - Single active socket connection (one peer at a time) — matches the 2-device V0 floor per D-067.
 - Diagnostic ping is not surfaced anywhere in consumer chat UI (D-028: hide networking complexity).
+- `DIAGNOSTICS_UI_ENABLED = true` in `src/config/buildFlags.ts` — must be flipped to `__DEV__` (or removed) before any consumer release so the Diagnostics screen is not reachable from consumer builds.
 
 ## 9. Next milestone (feeding into Phase 4)
 
@@ -135,6 +169,7 @@ Per the user's spec and CLAUDE.md §7 §8 §38, physical networking is not marke
 - [x] Automated tests added (31 new, 56 total green)
 - [x] Green gates: `pnpm test`, `pnpm typecheck`, `pnpm lint`
 - [x] Android build + emulator smoke complete (with Hermes TextDecoder fix)
+- [x] Standalone release APK built (JS bundle packaged; no Metro at runtime)
 - [x] `docs/10-DECISIONS.md` updated (D-062…D-067, D-063 AMENDED)
 - [x] `docs/PHASE3-REPORT.md` filled (this document)
-- [ ] Physical two-phone test — **BLOCKED, awaiting hardware**
+- [x] Physical two-phone test — **PASS on two real Android phones, 2026-09-21**, N-001…N-008 all green (§5). Devices: Motorola Edge 50 Neo (Android 15) ↔ iQOO Neo7 Pro (Android 14).

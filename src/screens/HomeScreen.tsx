@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAppFoundationStore } from '../store/appFoundationStore';
 import { withPrefix } from '../utils/ids';
+import { DIAGNOSTICS_UI_ENABLED } from '../config/buildFlags';
 import type { RootStackParamList } from '../navigation/RootStack';
 
 export function HomeScreen(): React.JSX.Element {
@@ -59,7 +60,7 @@ export function HomeScreen(): React.JSX.Element {
         ) : null}
       </View>
 
-      {__DEV__ ? (
+      {DIAGNOSTICS_UI_ENABLED ? (
         <Pressable
           onPress={() => navigation.navigate('Diagnostics')}
           style={({ pressed }) => [
@@ -68,7 +69,7 @@ export function HomeScreen(): React.JSX.Element {
           ]}
           testID="open-diagnostics"
         >
-          <Text style={styles.diagButtonText}>Open diagnostics</Text>
+          <Text style={styles.diagButtonText}>Diagnostics · dev</Text>
         </Pressable>
       ) : null}
     </View>
