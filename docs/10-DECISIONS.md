@@ -1412,3 +1412,182 @@ Phase 2 ships plain (unencrypted) SQLite. At-rest database encryption via SQLCip
 
 ---
 
+## D-062 — Phase 3 V0 transport is Android Wi-Fi Direct (`WifiP2pManager`)
+
+**Status:** ACCEPTED (2026-09-20)
+
+### Decision
+
+The sole V0 physical transport implemented in Phase 3 is **Android Wi-Fi Direct** via `android.net.wifi.p2p.WifiP2pManager`. BLE remains a supporting-only role (D-011, D-037) and is not implemented in Phase 3. Wi-Fi Aware (NAN) and LoRa remain deferred.
+
+### Reason
+
+- Wi-Fi Direct has the widest hardware coverage of the pre-BLE-mesh options. `PackageManager.FEATURE_WIFI_AWARE` is unavailable on a significant portion of mid-range Android hardware, so NAN cannot be the primary V0 path.
+- `03-NETWORKING.md` §2 and §5 already position Wi-Fi Direct as the initial V0 transport.
+- Focused scope keeps Phase 3 provable: one transport, one code path, one physical test. This matches the user's Phase 3 spec ("first prove PHONE A ↔ PHONE B only").
+
+### Consequence
+
+- Phase 3 code declares a single `Transport` implementation (`WifiP2pTransport`). The `CommunicationManager` still consumes a `Transport` interface so BLE/LoRa can be added later without changing UI code (D-013).
+- If physical testing shows Wi-Fi Direct fails to negotiate on the target OEM pair, that is a STOP condition — not a signal to silently switch transport.
+
+---
+
+## D-063 — Native integration surface: classic `ReactContextBaseJavaModule` in Phase 3; Codegen'd TurboModule deferred to Phase 4
+
+**Status:** AMENDED (2026-09-20)
+
+### Decision
+
+The Kotlin native module that exposes Wi-Fi Direct to JavaScript is a **classic bridged `ReactContextBaseJavaModule`** that emits events via `RCTDeviceEventEmitter`. Under RN 0.87.1's New Architecture (D-048), the interop layer runs classic modules unchanged.
+
+Kotlin implementation: `android/app/src/main/java/com/offgrid/p2p/`. TypeScript surface: `src/services/communication/transports/nativeSurface.ts` loads via `NativeModules.OffgridP2p` and subscribes via `DeviceEventEmitter`.
+
+The forward-looking TurboModule spec is kept at `specs/NativeOffgridP2p.ts` as documentation only (no `codegenConfig` entry in `package.json`). Phase 4 will migrate to Codegen using this spec as the starting point.
+
+### Reason
+
+- RN 0.87.1 (D-048) has the New Architecture ON by default, but its interop layer runs classic bridged modules faithfully — the TurboModule contract is not a hard requirement for a V0 diagnostic transport.
+- `TurboModuleRegistry.getEnforcing<Spec>('OffgridP2p')` throws at module-load if Codegen has not registered the module correctly. That is fragile for Jest and error-prone when the New Architecture Codegen toolchain has not been exercised for this project before. The failure mode makes the whole app un-bootable rather than degrading the transport.
+- The classic-module path is understood, uniformly documented, and has zero build-graph risk. It lets Phase 3 focus on the Wi-Fi Direct behavior itself rather than on Codegen bring-up.
+- The original D-063 already contained an explicit consequence clause allowing this fallback: *"If the generated `NativeOffgridP2pSpec.kt` base class does not produce the expected `emitOnFoo(...)` shape for `EventEmitter<T>`, Phase 3 falls back to `RCTDeviceEventEmitter` via the interop layer and this decision is amended in-place — the change is documented, not silent."*
+
+### Consequence
+
+- No `codegenConfig` entry in `package.json`; no Codegen Gradle step for this module in Phase 3.
+- Event names are stable string constants (`OffgridP2p:peersChanged`, `OffgridP2p:connectionStateChanged`, `OffgridP2p:payloadReceived`) declared in `specs/NativeOffgridP2p.ts` and imported by both sides through TypeScript.
+- Phase 4 migration path: fill in `codegenConfig`, promote `IntendedSpec` in `specs/NativeOffgridP2p.ts` to a proper `TurboModule` interface, replace `ReactContextBaseJavaModule` with the generated `NativeOffgridP2pSpec` base class.
+- No new npm dependency; no new Kotlin dependency.
+
+---
+
+## D-064 — Phase 3 Android permissions
+
+**Status:** ACCEPTED (2026-09-20)
+
+### Decision
+
+`android/app/src/main/AndroidManifest.xml` declares exactly these permissions for Phase 3:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+<uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+<uses-permission
+    android:name="android.permission.NEARBY_WIFI_DEVICES"
+    android:usesPermissionFlags="neverForLocation"
+    tools:targetApi="tiramisu" />
+<uses-permission
+    android:name="android.permission.ACCESS_FINE_LOCATION"
+    android:maxSdkVersion="32" />
+```
+
+- `INTERNET`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE`: install-time. `INTERNET` is required because the socket API is still Java sockets even though there is no actual Internet path.
+- `NEARBY_WIFI_DEVICES` (runtime/dangerous) with `neverForLocation`: required from API 33+. `neverForLocation` avoids the location-permission prompt.
+- `ACCESS_FINE_LOCATION` with `maxSdkVersion="32"` (runtime/dangerous): fallback for API ≤32 only. Discovery on those OS versions additionally requires system Location Mode to be ON.
+
+No `CHANGE_NETWORK_STATE`. No foreground service is declared in Phase 3 — discovery only runs while the diagnostics screen is foregrounded (Security §21: nearby discovery does not equal authorization; do not run silent background scans).
+
+### Reason
+
+- `NEARBY_WIFI_DEVICES` with `neverForLocation` is the current documented pattern from `developer.android.com` for apps that use Wi-Fi P2P for peer-to-peer communication, not for deriving user location.
+- Keeping `ACCESS_FINE_LOCATION` `maxSdkVersion` bounded to 32 avoids over-requesting on modern Android — the user should not see a location prompt on any device shipped in 2023 or later.
+- No foreground service in Phase 3 keeps the security/privacy surface minimal until the V0 path is proven.
+
+### Consequence
+
+- Phase 3 diagnostics screen must call `PermissionsAndroid.request(NEARBY_WIFI_DEVICES)` on 33+ or `ACCESS_FINE_LOCATION` on ≤32 before invoking `startDiscovery`.
+- Phase 4+ background scanning, relay, or persistent connections will require re-opening this decision (foreground service, `foregroundServiceType`, possibly additional privacy disclosures).
+
+---
+
+## D-065 — Phase 3 wire format: length-prefixed JSON on TCP port 8988
+
+**Status:** ACCEPTED (2026-09-20)
+
+### Decision
+
+Phase 3 payloads on the Wi-Fi Direct group are framed as:
+
+```
+[ uint32 big-endian length ][ UTF-8 JSON body ]
+```
+
+on TCP port **8988**. The Wi-Fi Direct group owner listens on `ServerSocket(8988)`; the non-owner opens `Socket(WifiP2pInfo.groupOwnerAddress, 8988)`. Sockets open only inside the `onConnectionInfoAvailable` callback after `groupFormed && groupOwnerAddress != null`.
+
+### Reason
+
+- Length-prefixed framing avoids ambiguous message boundaries on a stream socket (JSON alone cannot self-frame without a delimiter that collides with JSON string content).
+- Port 8988 is inside the IANA user range and not commonly used by system services on Android; it is deliberately a fixed constant so both sides do not need to negotiate a port.
+- Server-on-owner / client-on-non-owner matches the pattern in the official `developer.android.com` Wi-Fi Direct guide.
+- JSON is chosen for Phase 3 only because it is human-readable in `adb logcat` and easy to validate with Jest tests. A binary framing (protobuf/CBOR) is deferred until real chat messages exist.
+
+### Consequence
+
+- Real chat messages (Phase 5+), encryption (Phase 10), and any binary payloads will re-open this format decision.
+- The `codec.ts` module owns encoding and MUST reject frames with `v ≠ 1`, unknown `kind`, or malformed JSON. No custom crypto here (CLAUDE.md §12).
+- Client `Socket` opens include a bounded retry (5×, exponential backoff) on `ECONNREFUSED` because the group-owner server may not have finished binding when the client first tries.
+
+---
+
+## D-066 — Phase 3 diagnostic payload: `TestPing v1`
+
+**Status:** ACCEPTED (2026-09-20)
+
+### Decision
+
+The only payload defined for Phase 3 is `TestPing v1`:
+
+```json
+{
+  "v": 1,
+  "kind": "test.ping",
+  "id": "<uuidv7>",
+  "fromDeviceId": "<uuidv7>",
+  "textPreview": "hello from A",
+  "sentAt": "2026-09-20T18:03:44.221Z"
+}
+```
+
+Received `TestPing`s are persisted via `messageRepository.insertMessageIfAbsent` (D-014) into a reserved Phase-3-only diagnostic group:
+
+- `id`: `00000000-0000-7000-8000-000000000003` (valid UUIDv7 by pattern, deliberately fixed for both devices).
+- `name`: `__phase3_diagnostics`.
+- `createdBy`: `NULL`.
+
+The diagnostic group is seeded only when the setting `phase3.diagnostics.enabled` is `true`. Migration 0002 inserts the flag with value `false` by default so behavior is opt-in.
+
+### Reason
+
+- Diagnostic pings are not chat messages. Keeping them under a reserved group id makes them trivially filterable out of any consumer chat query.
+- Using the existing `messages` table + `insertMessageIfAbsent` proves the deduplication path (D-014) with real code, not a stub.
+- Opt-in flag matches Security §21 (nothing runs silently) and lets automated tests exercise the path without polluting a device's default state.
+
+### Consequence
+
+- The diagnostic group id is reserved forever; no user-created group may reuse it.
+- Phase 3 UI must not display messages from this group in any consumer chat surface — it appears only in the Diagnostics screen event log.
+- Test payload includes `fromDeviceId` (persistent UUIDv7 from `ensureLocalDevice`) so the receiver can identify the sender even though the Wi-Fi Direct MAC may be per-session randomized.
+
+---
+
+## D-067 — Phase 3 physical-test compatibility floor: 2 devices (narrows D-053)
+
+**Status:** ACCEPTED (2026-09-20)
+
+### Decision
+
+The Phase 3 physical-test compatibility floor is **2 Android devices** (PHONE A + PHONE B). The 3-device compatibility floor introduced in D-053 applies to **Phase 4** (relay / multi-hop / mesh), not Phase 3.
+
+### Reason
+
+The user's Phase 3 spec is explicit: "first prove PHONE A ↔ PHONE B only. Not mesh." A relay path requires three devices by definition; a one-hop path does not. Requiring three devices for Phase 3 would delay the direct A↔B proof without adding evidence.
+
+### Consequence
+
+- Phase 3 completion is not blocked on a third device. Phase 3 report may mark relay/mesh testing as OUT-OF-SCOPE.
+- Phase 4 planning must include a decision recording the three chosen devices (models, OS versions, chipsets) before any relay claim can be validated.
+- D-053's "three-device compatibility floor" text is now understood to activate at the Phase 4 boundary — its language is not being rewritten, but this decision narrows its scope.
+
+---
+

@@ -2,13 +2,17 @@ import { createInMemoryDb, createFileBackedDb } from '../support/testDb';
 import { runMigrations } from '../../src/database';
 
 describe('runMigrations', () => {
-  it('creates schema_migrations and applies the initial migration on a fresh DB', () => {
+  it('creates schema_migrations and applies all migrations on a fresh DB', () => {
     const db = createInMemoryDb();
     const { rows } = db.execute(
       'SELECT version, name FROM schema_migrations ORDER BY version',
     );
     expect(rows).toEqual([
       expect.objectContaining({ version: 1, name: '0001_initial_schema' }),
+      expect.objectContaining({
+        version: 2,
+        name: '0002_phase3_diagnostics_flag',
+      }),
     ]);
     db.close();
   });
@@ -17,7 +21,7 @@ describe('runMigrations', () => {
     const db = createInMemoryDb();
     const report = runMigrations(db);
     expect(report.appliedVersions).toEqual([]);
-    expect(report.currentVersion).toBe(1);
+    expect(report.currentVersion).toBe(2);
     db.close();
   });
 

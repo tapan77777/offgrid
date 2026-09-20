@@ -1,11 +1,16 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAppFoundationStore } from '../store/appFoundationStore';
 import { withPrefix } from '../utils/ids';
+import type { RootStackParamList } from '../navigation/RootStack';
 
 export function HomeScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const status = useAppFoundationStore(s => s.status);
   const schemaVersion = useAppFoundationStore(s => s.schemaVersion);
   const localDeviceId = useAppFoundationStore(s => s.localDeviceId);
@@ -53,6 +58,19 @@ export function HomeScreen(): React.JSX.Element {
           </Text>
         ) : null}
       </View>
+
+      {__DEV__ ? (
+        <Pressable
+          onPress={() => navigation.navigate('Diagnostics')}
+          style={({ pressed }) => [
+            styles.diagButton,
+            pressed && styles.diagButtonPressed,
+          ]}
+          testID="open-diagnostics"
+        >
+          <Text style={styles.diagButtonText}>Open diagnostics</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -150,5 +168,22 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: '#ff6b6b',
     fontSize: 12,
+  },
+  diagButton: {
+    marginTop: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#3a3f45',
+  },
+  diagButtonPressed: {
+    opacity: 0.6,
+  },
+  diagButtonText: {
+    color: '#9aa0a6',
+    fontSize: 12,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
 });

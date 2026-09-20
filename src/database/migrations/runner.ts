@@ -1,8 +1,12 @@
 import type { OffgridDb } from '../sqlite/types';
 import type { Migration } from './types';
 import { initialSchema } from './0001_initial_schema';
+import { phase3DiagnosticsFlag } from './0002_phase3_diagnostics_flag';
 
-export const allMigrations: readonly Migration[] = [initialSchema];
+export const allMigrations: readonly Migration[] = [
+  initialSchema,
+  phase3DiagnosticsFlag,
+];
 
 const CREATE_MIGRATIONS_TABLE = `
 CREATE TABLE IF NOT EXISTS schema_migrations (

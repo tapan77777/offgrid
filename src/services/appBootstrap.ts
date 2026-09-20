@@ -7,6 +7,7 @@ const appVersion: string = pkg.version;
 import { runMigrations } from '../database';
 import { applyStartupPragmas, createOpSqliteDb } from '../database/sqlite';
 import { ensureLocalDevice } from './identity';
+import { ensureDiagnosticGroup, isDiagnosticsEnabled } from './communication';
 import type { DevicePlatform } from '../types/entities';
 import type { DeviceId } from '../types/ids';
 
@@ -33,6 +34,9 @@ export function bootstrapApp(): AppBootstrapResult {
     appVersion,
     deviceName: appName,
   });
+  if (isDiagnosticsEnabled(db)) {
+    ensureDiagnosticGroup(db);
+  }
   cached = {
     db,
     deviceId: device.deviceId,
