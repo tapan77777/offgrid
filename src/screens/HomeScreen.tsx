@@ -1,190 +1,205 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Screen } from '../components/Screen';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
+import { SectionHeader } from '../components/SectionHeader';
+import { ConnectionStatus } from '../components/ConnectionStatus';
+import { SafetyActionButton } from '../components/SafetyActionButton';
+import { ComingSoonNotice } from '../components/ComingSoonNotice';
+import { Icon } from '../components/Icon';
+import { IconBadge } from '../components/IconBadge';
 import { useAppFoundationStore } from '../store/appFoundationStore';
-import { withPrefix } from '../utils/ids';
-import { DIAGNOSTICS_UI_ENABLED } from '../config/buildFlags';
+import { colors, radii, spacing, typography } from '../theme';
 import type { RootStackParamList } from '../navigation/RootStack';
 
+type Nav = NativeStackNavigationProp<RootStackParamList>;
+
 export function HomeScreen(): React.JSX.Element {
-  const insets = useSafeAreaInsets();
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<Nav>();
   const status = useAppFoundationStore(s => s.status);
-  const schemaVersion = useAppFoundationStore(s => s.schemaVersion);
-  const localDeviceId = useAppFoundationStore(s => s.localDeviceId);
-  const deviceWasCreated = useAppFoundationStore(s => s.deviceWasCreated);
   const error = useAppFoundationStore(s => s.error);
 
-  return (
-    <View
-      style={[
-        styles.container,
-        { paddingTop: insets.top, paddingBottom: insets.bottom },
-      ]}
-      testID="home-screen"
-    >
-      <Text style={styles.title}>OFFGRID</Text>
-      <Text style={styles.tagline}>
-        Stay connected when the network disappears.
-      </Text>
-      <Text style={styles.phase}>Phase 2 — Local Foundation</Text>
+  const bootReady = status === 'ready';
 
-      <View style={styles.statusBlock} testID="foundation-status">
-        <StatusRow label="DB status" value={statusLabel(status)} />
-        <StatusRow
-          label="Schema"
-          value={schemaVersion === null ? '—' : `v${schemaVersion}`}
-        />
-        <StatusRow
-          label="Device ID"
-          value={localDeviceId ? shortDeviceId(localDeviceId) : '—'}
-          testID="device-id-display"
-        />
-        <StatusRow
-          label="Origin"
-          value={
-            localDeviceId === null
-              ? '—'
-              : deviceWasCreated
-                ? 'created this launch'
-                : 'restored from local DB'
-          }
-        />
-        {error !== null ? (
-          <Text style={styles.errorText} testID="foundation-error">
-            {error}
-          </Text>
-        ) : null}
+  return (
+    <Screen scrollable testID="home-screen">
+      <View style={styles.header}>
+        <View style={styles.brandRow}>
+          <View style={styles.markWrap}>
+            <Icon name="radio" color={colors.brandStrong} size={16} />
+          </View>
+          <Text style={styles.brand}>OFFGRID</Text>
+        </View>
+        <Text style={styles.greeting}>Welcome back</Text>
+        <Text style={[typography.bodySecondary, styles.subhead]}>
+          Stay connected when the network disappears.
+        </Text>
       </View>
 
-      {DIAGNOSTICS_UI_ENABLED ? (
-        <Pressable
-          onPress={() => navigation.navigate('Diagnostics')}
-          style={({ pressed }) => [
-            styles.diagButton,
-            pressed && styles.diagButtonPressed,
-          ]}
-          testID="open-diagnostics"
-        >
-          <Text style={styles.diagButtonText}>Diagnostics · dev</Text>
-        </Pressable>
+      <View style={styles.section}>
+        {/*
+         * Real transport state is only available on the Diagnostics screen for
+         * now. Home shows the honest "no connection" state until a real
+         * connection lifecycle is wired into a consumer store. See D-029,
+         * §11 of 06-UX-FLOWS.md. Do not fabricate a "connected" state here.
+         */}
+        <Card>
+          <ConnectionStatus
+            state="noConnection"
+            testID="home-connection-status"
+          />
+        </Card>
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Your groups" />
+        <Card testID="home-groups-empty">
+          <View style={styles.emptyHeader}>
+            <IconBadge name="users" tone="brand" />
+            <View style={styles.emptyTextBlock}>
+              <Text style={typography.bodyStrong}>No groups yet</Text>
+              <Text style={typography.bodySecondary}>
+                Create a private group for your trip, or join with a code from
+                a friend.
+              </Text>
+            </View>
+          </View>
+          <View style={styles.buttonRow}>
+            <Button
+              label="Create group"
+              variant="secondary"
+              onPress={() => navigation.navigate('MainTabs')}
+              disabled
+              leadingIcon="plus"
+              testID="home-create-group"
+              accessibilityHint="Coming in a later release"
+            />
+            <Button
+              label="Join with code"
+              variant="ghost"
+              onPress={() => navigation.navigate('MainTabs')}
+              disabled
+              testID="home-join-group"
+              accessibilityHint="Coming in a later release"
+            />
+          </View>
+        </Card>
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Safety" />
+        <View style={styles.safetyStack}>
+          <SafetyActionButton
+            kind="imSafe"
+            disabled
+            testID="home-im-safe"
+          />
+          <SafetyActionButton kind="sos" disabled testID="home-sos" />
+          <Text style={[typography.caption, styles.safetyNote]}>
+            Safety actions activate once a group is joined and a connection is
+            available.
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Trip essentials" />
+        <View style={styles.tileGrid}>
+          <ComingSoonNotice
+            feature="Offline maps"
+            detail="Download areas before you leave signal. Your position stays visible even without internet."
+          />
+          <ComingSoonNotice
+            feature="Group chat"
+            detail="Message your group even without internet. Delivery states are honest — sent means sent."
+          />
+          <ComingSoonNotice
+            feature="Live members"
+            detail="See who is nearby, who was last seen, and where they were."
+          />
+        </View>
+      </View>
+
+      {!bootReady ? (
+        <View style={styles.section}>
+          <Card testID="home-boot-status">
+            <Text style={typography.bodyStrong}>Preparing your device…</Text>
+            <Text style={[typography.bodySecondary, styles.tight]}>
+              {error ?? 'Setting up local storage and identity.'}
+            </Text>
+          </Card>
+        </View>
       ) : null}
-    </View>
+    </Screen>
   );
-}
-
-function StatusRow({
-  label,
-  value,
-  testID,
-}: {
-  label: string;
-  value: string;
-  testID?: string;
-}): React.JSX.Element {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue} testID={testID}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case 'idle':
-      return 'starting…';
-    case 'loading':
-      return 'initializing…';
-    case 'ready':
-      return 'ready';
-    case 'error':
-      return 'error';
-    default:
-      return status;
-  }
-}
-
-function shortDeviceId(deviceId: string): string {
-  return withPrefix('dev', deviceId).slice(0, 16) + '…';
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  header: {
+    marginBottom: spacing.xl,
+    gap: spacing.xs,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  markWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brandSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandBorder,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
-    backgroundColor: '#0b0d10',
   },
-  title: {
-    fontSize: 40,
-    fontWeight: '700',
-    color: '#f5f5f5',
-    letterSpacing: 4,
-  },
-  tagline: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#9aa0a6',
-    textAlign: 'center',
-  },
-  phase: {
-    marginTop: 32,
-    fontSize: 12,
-    color: '#5f6368',
+  brand: {
+    ...typography.overline,
+    color: colors.textSecondary,
+    fontSize: 11,
     letterSpacing: 2,
   },
-  statusBlock: {
-    marginTop: 40,
-    width: '100%',
-    maxWidth: 360,
-    borderWidth: 1,
-    borderColor: '#1c1f24',
-    borderRadius: 8,
-    padding: 16,
+  greeting: {
+    ...typography.displayLarge,
   },
-  row: {
+  subhead: {
+    color: colors.textSecondary,
+  },
+  section: {
+    marginBottom: spacing.xl,
+  },
+  emptyHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 4,
+    alignItems: 'flex-start',
+    gap: spacing.sm,
   },
-  rowLabel: {
-    color: '#5f6368',
-    fontSize: 12,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+  emptyTextBlock: {
+    flex: 1,
+    gap: 2,
   },
-  rowValue: {
-    color: '#e8eaed',
-    fontSize: 14,
-    fontFamily: 'Courier',
+  tight: {
+    marginTop: spacing.xxs,
   },
-  errorText: {
-    marginTop: 12,
-    color: '#ff6b6b',
-    fontSize: 12,
+  buttonRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    flexWrap: 'wrap',
   },
-  diagButton: {
-    marginTop: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#3a3f45',
+  safetyStack: {
+    gap: spacing.sm,
   },
-  diagButtonPressed: {
-    opacity: 0.6,
+  safetyNote: {
+    color: colors.textMuted,
+    marginTop: spacing.xxs,
+    paddingHorizontal: spacing.xxs,
   },
-  diagButtonText: {
-    color: '#9aa0a6',
-    fontSize: 12,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+  tileGrid: {
+    gap: spacing.sm,
   },
 });
