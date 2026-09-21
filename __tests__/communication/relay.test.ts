@@ -381,7 +381,7 @@ describe('RelayRouter — 3-node triangle (A → B → C)', () => {
     expect(ttlExpiredOnB?.kind).toBe('envelopeTtlExpired');
 
     const forwardedOnB = rig.eventsB.find(
-      e => e.kind === 'envelopeForwarded',
+      e => e.kind === 'envelopeFrameWritten',
     );
     expect(forwardedOnB).toBeUndefined();
     expect(rig.routerB.queueDepth()).toBe(0);
@@ -415,7 +415,7 @@ describe('RelayRouter — 3-node triangle (A → B → C)', () => {
       hopCount: envelope.hopCount + 1,
     };
     const forwardsBeforeLoop = rig.eventsA.filter(
-      e => e.kind === 'envelopeForwarded',
+      e => e.kind === 'envelopeFrameWritten',
     ).length;
 
     (rig.transportA as unknown as {
@@ -441,7 +441,7 @@ describe('RelayRouter — 3-node triangle (A → B → C)', () => {
 
     // The loop attempt must not have caused any additional forward.
     const forwardsAfterLoop = rig.eventsA.filter(
-      e => e.kind === 'envelopeForwarded',
+      e => e.kind === 'envelopeFrameWritten',
     ).length;
     expect(forwardsAfterLoop).toBe(forwardsBeforeLoop);
     await rig.dispose();

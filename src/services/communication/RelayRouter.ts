@@ -33,8 +33,14 @@ export type RelayRouterEvent =
       readonly kind: 'envelopeDelivered';
       readonly envelope: MessageEnvelope;
     }
+  // Named `envelopeFrameWritten` (not `envelopeForwarded`) on purpose: the
+  // only fact we can prove at this layer is that our local TCP write returned
+  // without error. There is no application-level ACK — the peer may have
+  // never received the frame (stale socket, kernel buffered but never
+  // delivered, etc.). Renamed after the Phase 4B rev 2 physical test where
+  // "forwarded" misled a diagnostician into thinking delivery was confirmed.
   | {
-      readonly kind: 'envelopeForwarded';
+      readonly kind: 'envelopeFrameWritten';
       readonly envelope: MessageEnvelope;
       readonly toAddress: string;
     }
@@ -142,17 +148,35 @@ export class RelayRouter {
     switch (event.kind) {
       case 'connectionChanged':
         if (event.snapshot.groupFormed) {
-          this.currentPeerAddress = event.snapshot.groupOwnerAddress;
-          this.drainQueue().catch(() => undefined);
+          // Only the client role learns the peer's IP from connection state.
+          // On the GO side, Android reports our own IP as groupOwnerAddress,
+          // so we defer learning the peer address until the first frame from
+          // it arrives via `payloadReceived` (see below).
+          if (!event.snapshot.isGroupOwner) {
+            this.currentPeerAddress = event.snapshot.groupOwnerAddress;
+            this.drainQueue().catch(() => undefined);
+          }
         } else {
           this.currentPeerAddress = null;
         }
         return;
-      case 'payloadReceived':
+      case 'payloadReceived': {
+        // The address that just handed us a frame is by definition the peer
+        // on the other end of our one active socket. Use it as ground truth
+        // — this matters on the GO side (we didn't know the client's IP yet)
+        // and also when Android's GO election puts our own IP into
+        // groupOwnerAddress. Loop prevention downstream compares against
+        // `receivedFromAddress`, which is this same value.
+        const previousPeer = this.currentPeerAddress;
+        this.currentPeerAddress = event.fromAddress;
+        if (previousPeer !== event.fromAddress) {
+          this.drainQueue().catch(() => undefined);
+        }
         this.handlePayload(event.bytes, event.fromAddress).catch(
           () => undefined,
         );
         return;
+      }
       // stateChanged, peersChanged, error are outside the router's remit
       default:
         return;
@@ -213,7 +237,7 @@ export class RelayRouter {
     if (target !== null && target !== receivedFromAddress) {
       await this.transport.sendPayload(encodeEnvelope(envelope));
       this.emit({
-        kind: 'envelopeForwarded',
+        kind: 'envelopeFrameWritten',
         envelope,
         toAddress: target,
       });
@@ -235,7 +259,7 @@ export class RelayRouter {
       if (target !== entry.receivedFromAddress) {
         await this.transport.sendPayload(encodeEnvelope(entry.envelope));
         this.emit({
-          kind: 'envelopeForwarded',
+          kind: 'envelopeFrameWritten',
           envelope: entry.envelope,
           toAddress: target,
         });

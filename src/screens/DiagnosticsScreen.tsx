@@ -4,20 +4,24 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { bootstrapApp } from '../services/appBootstrap';
 import {
   CommunicationManager,
+  RelayRouter,
   SETTING_PHASE3_DIAGNOSTICS_ENABLED,
   ensureDiagnosticGroup,
   isDiagnosticsEnabled,
   setDiagnosticsEnabled,
 } from '../services/communication';
 import { WifiP2pTransport } from '../services/communication/transports/WifiP2pTransport';
+import type { DeviceId } from '../types/ids';
 import { useAppFoundationStore } from '../store/appFoundationStore';
 import {
   useCommunicationStore,
@@ -45,9 +49,13 @@ export function DiagnosticsScreen(): React.JSX.Element {
   const reset = useCommunicationStore(s => s.reset);
 
   const managerRef = useRef<CommunicationManager | null>(null);
+  const routerRef = useRef<RelayRouter | null>(null);
   const [permission, setPermission] = useState<PermissionStatus>('unknown');
   const [enabled, setEnabled] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
+  const [destinationDeviceIdInput, setDestinationDeviceIdInput] =
+    useState<string>('');
+  const [envelopeTextInput, setEnvelopeTextInput] = useState<string>('relay hop test');
 
   const appendLog = useCommunicationStore(s => s.appendLog);
   const setTransportState = useCommunicationStore(s => s.setTransportState);
@@ -80,7 +88,12 @@ export function DiagnosticsScreen(): React.JSX.Element {
     }
     return () => {
       const mgr = managerRef.current;
+      const router = routerRef.current;
       managerRef.current = null;
+      routerRef.current = null;
+      if (router) {
+        router.detach();
+      }
       if (mgr) {
         mgr.dispose().catch(() => undefined);
       }
@@ -136,7 +149,61 @@ export function DiagnosticsScreen(): React.JSX.Element {
           return;
       }
     });
+    // Phase 4B — RelayRouter shares the same transport. Manager and router
+    // are dual subscribers: the manager still handles TestPing frames, and
+    // the router handles MessageEnvelope frames (the manager silently ignores
+    // envelope-shaped payloads to avoid noisy `payloadRejected` events).
+    const router = new RelayRouter({
+      transport,
+      db,
+      localDeviceId,
+    });
+    router.on(event => {
+      switch (event.kind) {
+        case 'envelopeSent':
+          pushLog(
+            'env-sent',
+            `envelope ${event.envelope.id.slice(0, 8)}… sent (ttl=${event.envelope.ttl}, dst=${event.envelope.destinationDeviceId?.slice(0, 8) ?? 'broadcast'})`,
+          );
+          return;
+        case 'envelopeReceived':
+          pushLog(
+            event.wasDuplicate ? 'duplicate' : 'env-received',
+            `${event.wasDuplicate ? 'dup ' : ''}env ${event.envelope.id.slice(0, 8)}… hop=${event.envelope.hopCount} forMe=${event.wasForMe}`,
+          );
+          return;
+        case 'envelopeDelivered':
+          pushLog(
+            'env-delivered',
+            `env ${event.envelope.id.slice(0, 8)}… delivered locally`,
+          );
+          return;
+        case 'envelopeFrameWritten':
+          pushLog(
+            'env-frame-written',
+            `env ${event.envelope.id.slice(0, 8)}… frame written → ${event.toAddress} (no ACK)`,
+          );
+          return;
+        case 'envelopeQueued':
+          pushLog(
+            'env-queued',
+            `env ${event.envelope.id.slice(0, 8)}… queued (${event.reason}); depth=${router.queueDepth()}`,
+          );
+          return;
+        case 'envelopeTtlExpired':
+          pushLog(
+            'env-expired',
+            `env ${event.envelope.id.slice(0, 8)}… ttl expired at hop=${event.envelope.hopCount}`,
+          );
+          return;
+        case 'envelopeRejected':
+          pushLog('env-rejected', `envelope rejected: ${event.reason}`);
+          return;
+      }
+    });
+    router.attach();
     managerRef.current = manager;
+    routerRef.current = router;
     return manager;
   }, [
     localDeviceId,
@@ -164,6 +231,17 @@ export function DiagnosticsScreen(): React.JSX.Element {
     },
     [busy, pushLog, setLastError],
   );
+
+  const onCopyDeviceId = () => {
+    if (!localDeviceId) return;
+    // RN's built-in Share opens the OS share sheet which includes "Copy" on
+    // Android — avoids adding a clipboard native dep just for a diagnostics
+    // affordance (CLAUDE.md §16).
+    Share.share({ message: localDeviceId }).catch(err => {
+      const message = err instanceof Error ? err.message : String(err);
+      pushLog('error', `share device id failed: ${message}`);
+    });
+  };
 
   const onEnableDiagnostics = () => {
     if (foundationStatus !== 'ready') return;
@@ -236,6 +314,40 @@ export function DiagnosticsScreen(): React.JSX.Element {
     });
   };
 
+  const onSendEnvelope = () => {
+    runGuarded('send envelope', async () => {
+      const router = routerRef.current;
+      if (!router) throw new Error('call Initialize first');
+      const trimmed = destinationDeviceIdInput.trim();
+      const destination: DeviceId | null =
+        trimmed.length === 0 ? null : (trimmed as DeviceId);
+      const text =
+        envelopeTextInput.trim().length === 0
+          ? `relay hop from ${localDeviceId?.slice(0, 8) ?? '?'}`
+          : envelopeTextInput.trim();
+      await router.sendEnvelope(destination, {
+        kind: 'test.ping',
+        payload: { textPreview: text },
+      });
+    });
+  };
+
+  const onBroadcastEnvelope = () => {
+    runGuarded('broadcast envelope', async () => {
+      const router = routerRef.current;
+      if (!router) throw new Error('call Initialize first');
+      await router.sendEnvelope(null, {
+        kind: 'test.ping',
+        payload: {
+          textPreview:
+            envelopeTextInput.trim().length === 0
+              ? `broadcast from ${localDeviceId?.slice(0, 8) ?? '?'}`
+              : envelopeTextInput.trim(),
+        },
+      });
+    });
+  };
+
   const enableSection = enabled ? null : (
     <View style={styles.card} testID="diagnostics-enable">
       <Text style={styles.cardTitle}>Diagnostics setting</Text>
@@ -262,6 +374,22 @@ export function DiagnosticsScreen(): React.JSX.Element {
       </Text>
 
       <ScrollView contentContainerStyle={styles.body}>
+        <View style={styles.card} testID="diagnostics-local-device-id">
+          <Text style={styles.cardTitle}>Local device id</Text>
+          <Text
+            style={styles.deviceIdValue}
+            selectable
+            testID="diagnostics-local-device-id-value"
+          >
+            {localDeviceId ?? '—'}
+          </Text>
+          <Button
+            label="Copy device id"
+            onPress={onCopyDeviceId}
+            disabled={!localDeviceId}
+          />
+        </View>
+
         {enableSection}
 
         <View style={styles.card}>
@@ -320,6 +448,58 @@ export function DiagnosticsScreen(): React.JSX.Element {
             disabled={
               busy ||
               managerRef.current === null ||
+              connection === null ||
+              !connection.groupFormed
+            }
+          />
+        </View>
+
+        <View style={styles.card} testID="phase4b-relay">
+          <Text style={styles.cardTitle}>Phase 4B · Relay envelope</Text>
+          <Text style={styles.cardBody}>
+            Sends a `MessageEnvelope` through `RelayRouter` on top of the same
+            Wi-Fi Direct transport. Leave the destination blank to broadcast
+            (every device relays until TTL=0). Enter Phone C&apos;s device id
+            to test A → B → C via sequential handoff (D-069).
+          </Text>
+          <Text style={styles.rowLabel}>Destination device id (UUIDv7)</Text>
+          <TextInput
+            value={destinationDeviceIdInput}
+            onChangeText={setDestinationDeviceIdInput}
+            placeholder="blank = broadcast"
+            placeholderTextColor="#5f6368"
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={styles.textInput}
+            testID="phase4b-destination-input"
+          />
+          <Text style={styles.rowLabel}>Text preview</Text>
+          <TextInput
+            value={envelopeTextInput}
+            onChangeText={setEnvelopeTextInput}
+            placeholder="relay hop test"
+            placeholderTextColor="#5f6368"
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={styles.textInput}
+            testID="phase4b-text-input"
+          />
+          <Button
+            label="Send envelope to destination"
+            onPress={onSendEnvelope}
+            disabled={
+              busy ||
+              routerRef.current === null ||
+              connection === null ||
+              !connection.groupFormed
+            }
+          />
+          <Button
+            label="Broadcast envelope"
+            onPress={onBroadcastEnvelope}
+            disabled={
+              busy ||
+              routerRef.current === null ||
               connection === null ||
               !connection.groupFormed
             }
@@ -418,11 +598,20 @@ function kindStyle(kind: DiagnosticsLogKind) {
   switch (kind) {
     case 'error':
     case 'rejected':
+    case 'env-rejected':
+    case 'env-expired':
       return { color: '#ff6b6b' };
     case 'sent':
     case 'received':
+    case 'env-sent':
+    case 'env-received':
+    case 'env-delivered':
       return { color: '#7cd992' };
+    case 'env-frame-written':
+      // Deliberately amber, not green: local write only, no ACK.
+      return { color: '#f5c542' };
     case 'duplicate':
+    case 'env-queued':
       return { color: '#f5c542' };
     default:
       return { color: '#8ab4f8' };
@@ -550,5 +739,24 @@ const styles = StyleSheet.create({
     color: '#e8eaed',
     fontSize: 12,
     flexShrink: 1,
+  },
+  deviceIdValue: {
+    color: '#e8eaed',
+    fontSize: 12,
+    fontFamily: 'Courier',
+    marginBottom: 4,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#3a3f45',
+    borderRadius: 6,
+    color: '#e8eaed',
+    fontSize: 12,
+    fontFamily: 'Courier',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 4,
+    marginBottom: 8,
+    backgroundColor: '#0f1216',
   },
 });

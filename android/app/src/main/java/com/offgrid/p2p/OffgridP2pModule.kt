@@ -51,6 +51,13 @@ class OffgridP2pModule(
 
     private var socketWorker: SocketWorker? = null
 
+    // Track the last committed group-owner role + owner address so we can
+    // detect a group transition even when the OS coalesces broadcasts (some
+    // OEMs skip the intermediate groupFormed=false during sequential handoff,
+    // which used to leave a stale SocketWorker attached — see Phase 4B rev 2).
+    @Volatile private var currentIsGroupOwner: Boolean? = null
+    @Volatile private var currentOwnerAddress: String? = null
+
     // ---------------------------------------------------------------- lifecycle
 
     @ReactMethod
@@ -110,6 +117,8 @@ class OffgridP2pModule(
             initialized = false
             socketWorker?.shutdown()
             socketWorker = null
+            currentIsGroupOwner = null
+            currentOwnerAddress = null
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("E_DISPOSE", e.message, e)
@@ -181,7 +190,16 @@ class OffgridP2pModule(
             promise.reject("E_PERMISSION", "nearby-devices permission missing")
             return
         }
-        val config = WifiP2pConfig().apply { this.deviceAddress = deviceAddress }
+        // Bias the initiating device toward the CLIENT role in the GO election.
+        // Under D-069 sequential handoff, whichever device calls connectToPeer is
+        // the one that most recently held state that must be handed off — being
+        // client means groupOwnerAddress reliably points to the remote peer, and
+        // the socket is opened proactively from this side (no accept-wait race
+        // that could drop a queued forward via E_NO_SOCKET). See Phase 4B report.
+        val config = WifiP2pConfig().apply {
+            this.deviceAddress = deviceAddress
+            groupOwnerIntent = 0
+        }
         try {
             mgr.connect(ch, config, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() { promise.resolve(null) }
@@ -220,6 +238,8 @@ class OffgridP2pModule(
             emitConnectionState(groupFormed = false, isGroupOwner = false, groupOwnerAddress = "")
             socketWorker?.stop()
             socketWorker = null
+            currentIsGroupOwner = null
+            currentOwnerAddress = null
         }
     }
 
@@ -260,7 +280,22 @@ class OffgridP2pModule(
             if (groupFormed) {
                 // Bring up socket transport lazily. Group owner runs the server;
                 // the other side connects as client with retry (R6).
-                if (socketWorker == null) {
+                //
+                // Recreate the worker whenever the effective role OR the peer
+                // address changed since the last group-formed callback — the
+                // previous `if (socketWorker == null)` guard left a stale worker
+                // attached across sequential handoff on OEMs that skip the
+                // intermediate groupFormed=false broadcast (Motorola / iQOO /
+                // Redmi have all been seen doing this). See Phase 4B rev 2.
+                val roleChanged = currentIsGroupOwner != isGroupOwner
+                val ownerChanged = currentOwnerAddress != ownerAddress
+                if (socketWorker == null || roleChanged || ownerChanged) {
+                    Log.i(
+                        TAG,
+                        "SocketWorker (re)start: isGO=$isGroupOwner owner=$ownerAddress " +
+                            "(roleChanged=$roleChanged ownerChanged=$ownerChanged)",
+                    )
+                    socketWorker?.stop()
                     socketWorker = SocketWorker(
                         onFrame = { fromAddress, base64 ->
                             val payload = Arguments.createMap().apply {
@@ -279,10 +314,14 @@ class OffgridP2pModule(
                             worker.startAsClient(ownerAddress)
                         }
                     }
+                    currentIsGroupOwner = isGroupOwner
+                    currentOwnerAddress = ownerAddress
                 }
             } else {
                 socketWorker?.stop()
                 socketWorker = null
+                currentIsGroupOwner = null
+                currentOwnerAddress = null
             }
         }
     }

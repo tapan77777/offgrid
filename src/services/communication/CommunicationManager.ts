@@ -8,7 +8,7 @@ import type {
 } from '../../types/communication';
 import type { DeviceId, MessageId } from '../../types/ids';
 import { newUuidV7 } from '../../utils/ids';
-import { decodeTestPing, encodeTestPing } from './codec';
+import { decodeEnvelope, decodeTestPing, encodeTestPing } from './codec';
 import {
   DIAGNOSTIC_GROUP_ID,
   DIAGNOSTIC_USER_ID,
@@ -161,18 +161,25 @@ export class CommunicationManager {
         return;
       case 'payloadReceived': {
         const ping = decodeTestPing(event.bytes);
-        if (!ping) {
+        if (ping) {
+          const result = this.persistPing(ping);
           this.emit({
-            kind: 'payloadRejected',
-            reason: 'not-a-test-ping-v1',
+            kind: 'pingReceived',
+            ping,
+            wasDuplicate: !result.inserted,
           });
           return;
         }
-        const result = this.persistPing(ping);
+        // Valid MessageEnvelope frames belong to RelayRouter (Phase 4B). We
+        // co-exist as dual subscribers on the same transport, so silently
+        // ignore envelope-shaped payloads here rather than emitting a
+        // misleading `payloadRejected`.
+        if (decodeEnvelope(event.bytes) !== null) {
+          return;
+        }
         this.emit({
-          kind: 'pingReceived',
-          ping,
-          wasDuplicate: !result.inserted,
+          kind: 'payloadRejected',
+          reason: 'not-a-test-ping-v1',
         });
         return;
       }

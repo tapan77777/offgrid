@@ -16,7 +16,18 @@ export type DiagnosticsLogKind =
   | 'received'
   | 'duplicate'
   | 'rejected'
-  | 'error';
+  | 'error'
+  // Phase 4B — MessageEnvelope / RelayRouter events
+  | 'env-sent'
+  | 'env-received'
+  // Only means "our local TCP write returned without error"; there is no
+  // application-level ACK, so this is not proof of peer delivery. Renamed
+  // after the rev 2 physical test where "forwarded" was misinterpreted.
+  | 'env-frame-written'
+  | 'env-queued'
+  | 'env-delivered'
+  | 'env-expired'
+  | 'env-rejected';
 
 export interface DiagnosticsLogEntry {
   readonly at: string;
