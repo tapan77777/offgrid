@@ -3,6 +3,7 @@ import type { SettingRow } from '../models/rows';
 import type { Setting } from '../../types/entities';
 
 export const SETTING_LOCAL_DEVICE_ID = 'local_device_id';
+export const SETTING_LOCAL_USER_ID = 'local_user_id';
 export const SETTING_SCHEMA_BOOTSTRAPPED_AT = 'schema_bootstrapped_at';
 
 function toDomain(row: SettingRow): Setting {

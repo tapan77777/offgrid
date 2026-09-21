@@ -57,6 +57,14 @@ export function touchDeviceLastSeen(
   db.execute('UPDATE devices SET last_seen_at = ? WHERE id = ?', [nowIso, id]);
 }
 
+export function setDeviceUserId(
+  db: OffgridDb,
+  id: DeviceId,
+  userId: UserId | null,
+): void {
+  db.execute('UPDATE devices SET user_id = ? WHERE id = ?', [userId, id]);
+}
+
 function requireById(db: OffgridDb, id: DeviceId): Device {
   const found = findDeviceById(db, id);
   if (!found) {

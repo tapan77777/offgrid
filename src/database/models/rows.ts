@@ -26,6 +26,17 @@ export interface GroupRow {
   status: string;
 }
 
+export interface GroupMemberRow {
+  id: string;
+  group_id: string;
+  user_id: string;
+  role: string;
+  status: string;
+  joined_at: string;
+  left_at: string | null;
+  updated_at: string;
+}
+
 export interface MessageRow {
   id: string;
   group_id: string;

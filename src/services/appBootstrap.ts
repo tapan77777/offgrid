@@ -6,10 +6,10 @@ const appName: string = pkg.name;
 const appVersion: string = pkg.version;
 import { runMigrations } from '../database';
 import { applyStartupPragmas, createOpSqliteDb } from '../database/sqlite';
-import { ensureLocalDevice } from './identity';
+import { ensureLocalDevice, ensureLocalUser } from './identity';
 import { ensureDiagnosticGroup, isDiagnosticsEnabled } from './communication';
 import type { DevicePlatform } from '../types/entities';
-import type { DeviceId } from '../types/ids';
+import type { DeviceId, UserId } from '../types/ids';
 
 const DB_NAME = 'offgrid.db';
 
@@ -17,6 +17,8 @@ export interface AppBootstrapResult {
   readonly db: OffgridDb;
   readonly deviceId: DeviceId;
   readonly deviceWasCreated: boolean;
+  readonly userId: UserId;
+  readonly userWasCreated: boolean;
   readonly schemaVersion: number;
 }
 
@@ -34,6 +36,7 @@ export function bootstrapApp(): AppBootstrapResult {
     appVersion,
     deviceName: appName,
   });
+  const user = ensureLocalUser(db, { linkDeviceId: device.deviceId });
   if (isDiagnosticsEnabled(db)) {
     ensureDiagnosticGroup(db);
   }
@@ -41,6 +44,8 @@ export function bootstrapApp(): AppBootstrapResult {
     db,
     deviceId: device.deviceId,
     deviceWasCreated: device.wasCreated,
+    userId: user.userId,
+    userWasCreated: user.wasCreated,
     schemaVersion: migration.currentVersion,
   };
   return cached;

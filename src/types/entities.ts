@@ -1,6 +1,7 @@
 import type {
   DeviceId,
   GroupId,
+  GroupMemberId,
   MessageId,
   UserId,
 } from './ids';
@@ -35,6 +36,20 @@ export interface Group {
   createdAt: string;
   updatedAt: string;
   status: GroupStatus;
+}
+
+export type GroupMemberRole = 'admin' | 'member';
+export type GroupMemberStatus = 'active' | 'left' | 'removed';
+
+export interface GroupMember {
+  id: GroupMemberId;
+  groupId: GroupId;
+  userId: UserId;
+  role: GroupMemberRole;
+  status: GroupMemberStatus;
+  joinedAt: string;
+  leftAt: string | null;
+  updatedAt: string;
 }
 
 export type MessageType =

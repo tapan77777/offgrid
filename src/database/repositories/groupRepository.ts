@@ -41,6 +41,20 @@ export function listGroups(db: OffgridDb): Group[] {
   return (rows as unknown as GroupRow[]).map(toDomain);
 }
 
+export function updateGroupName(
+  db: OffgridDb,
+  id: GroupId,
+  name: string,
+  nowIso: string,
+): Group {
+  db.execute('UPDATE groups SET name = ?, updated_at = ? WHERE id = ?', [
+    name,
+    nowIso,
+    id,
+  ]);
+  return requireById(db, id);
+}
+
 function requireById(db: OffgridDb, id: GroupId): Group {
   const found = findGroupById(db, id);
   if (!found) {

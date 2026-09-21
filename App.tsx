@@ -28,6 +28,8 @@ function App(): React.JSX.Element {
         schemaVersion: result.schemaVersion,
         localDeviceId: result.deviceId,
         deviceWasCreated: result.deviceWasCreated,
+        localUserId: result.userId,
+        userWasCreated: result.userWasCreated,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

@@ -71,19 +71,15 @@ export function HomeScreen(): React.JSX.Element {
             <Button
               label="Create group"
               variant="secondary"
-              onPress={() => navigation.navigate('MainTabs')}
-              disabled
+              onPress={() => navigation.navigate('CreateGroup')}
               leadingIcon="plus"
               testID="home-create-group"
-              accessibilityHint="Coming in a later release"
             />
             <Button
               label="Join with code"
               variant="ghost"
-              onPress={() => navigation.navigate('MainTabs')}
-              disabled
+              onPress={() => navigation.navigate('JoinGroup')}
               testID="home-join-group"
-              accessibilityHint="Coming in a later release"
             />
           </View>
         </Card>

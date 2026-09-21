@@ -8,14 +8,18 @@ import { MembersScreen } from '../screens/MembersScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AdvancedScreen } from '../screens/AdvancedScreen';
 import { DiagnosticsScreen } from '../screens/DiagnosticsScreen';
+import { CreateGroupScreen } from '../screens/CreateGroupScreen';
+import { JoinGroupScreen } from '../screens/JoinGroupScreen';
 import { colors, typography } from '../theme';
 
 export type RootStackParamList = {
   MainTabs: undefined;
-  Group: { groupId?: string } | undefined;
+  Group: { groupId: string };
   Chat: { groupId?: string } | undefined;
   Map: { groupId?: string } | undefined;
-  Members: { groupId?: string } | undefined;
+  Members: { groupId: string };
+  CreateGroup: undefined;
+  JoinGroup: undefined;
   Settings: undefined;
   Advanced: undefined;
   Diagnostics: undefined;
@@ -63,6 +67,16 @@ export function RootStack(): React.JSX.Element {
         name="Members"
         component={MembersScreen}
         options={{ title: 'Members' }}
+      />
+      <Stack.Screen
+        name="CreateGroup"
+        component={CreateGroupScreen}
+        options={{ title: 'Create group' }}
+      />
+      <Stack.Screen
+        name="JoinGroup"
+        component={JoinGroupScreen}
+        options={{ title: 'Join a group' }}
       />
       <Stack.Screen
         name="Settings"
