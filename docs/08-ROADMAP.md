@@ -215,6 +215,15 @@ Do not call this "mesh" until multi-hop behavior has actually been demonstrated.
 
 # 7. Phase 4 — Messaging Engine
 
+**Phase 4A (pre-work, JS-only):** A → B → C relay proof on top of the Phase 3
+transport, delivered separately as the smallest real multi-hop mechanism.
+Scope: `MessageEnvelope` v1, `RelayRouter`, sequential-handoff algorithm,
+`insertMessageIfAbsent`-based dedupe + loop prevention, mock triangle tests.
+No Kotlin changes, no chat UI, no store-and-forward as a product feature. See
+`docs/PHASE4-PLAN.md` and `10-DECISIONS.md` D-068/D-069/D-070.
+
+**Phase 4B onward:** the full Messaging Engine described below.
+
 Implement the real messaging domain.
 
 Components:

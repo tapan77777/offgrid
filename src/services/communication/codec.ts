@@ -1,4 +1,13 @@
-import type { TestPing } from '../../types/communication';
+import type {
+  EnvelopeBody,
+  MessageEnvelope,
+  TestPing,
+  TestPingBody,
+} from '../../types/communication';
+import {
+  MAX_ENVELOPE_HOP_COUNT,
+  MAX_ENVELOPE_TTL,
+} from '../../types/communication';
 import type { DeviceId, MessageId } from '../../types/ids';
 import { isUuidV7 } from '../../utils/ids';
 
@@ -148,6 +157,130 @@ export function utf8Decode(bytes: Uint8Array): string | null {
     }
   }
   return out;
+}
+
+export function encodeEnvelope(envelope: MessageEnvelope): Uint8Array {
+  const json = JSON.stringify(envelope);
+  const bodyBytes = utf8Encode(json);
+  if (bodyBytes.byteLength > MAX_FRAME_BYTES) {
+    throw new Error(
+      `MessageEnvelope frame ${bodyBytes.byteLength}B exceeds max ${MAX_FRAME_BYTES}B`,
+    );
+  }
+  const frame = new Uint8Array(LENGTH_PREFIX_BYTES + bodyBytes.byteLength);
+  const view = new DataView(frame.buffer);
+  view.setUint32(0, bodyBytes.byteLength, false);
+  frame.set(bodyBytes, LENGTH_PREFIX_BYTES);
+  return frame;
+}
+
+export function decodeEnvelope(frame: Uint8Array): MessageEnvelope | null {
+  if (frame.byteLength < LENGTH_PREFIX_BYTES) {
+    return null;
+  }
+  const view = new DataView(
+    frame.buffer,
+    frame.byteOffset,
+    frame.byteLength,
+  );
+  const bodyLength = view.getUint32(0, false);
+  if (bodyLength === 0 || bodyLength > MAX_FRAME_BYTES) {
+    return null;
+  }
+  if (frame.byteLength < LENGTH_PREFIX_BYTES + bodyLength) {
+    return null;
+  }
+  const bodyBytes = frame.subarray(
+    LENGTH_PREFIX_BYTES,
+    LENGTH_PREFIX_BYTES + bodyLength,
+  );
+  const json = utf8Decode(bodyBytes);
+  if (json === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  return validateEnvelope(parsed);
+}
+
+export function validateEnvelope(value: unknown): MessageEnvelope | null {
+  if (!isRecord(value)) return null;
+  if (value.v !== 1) return null;
+  if (value.kind !== 'msg.envelope') return null;
+  if (typeof value.id !== 'string' || !isUuidV7(value.id)) return null;
+  if (
+    typeof value.originDeviceId !== 'string' ||
+    !isUuidV7(value.originDeviceId)
+  ) {
+    return null;
+  }
+  if (value.destinationDeviceId !== null) {
+    if (
+      typeof value.destinationDeviceId !== 'string' ||
+      !isUuidV7(value.destinationDeviceId)
+    ) {
+      return null;
+    }
+  }
+  if (!isIntegerInRange(value.ttl, 0, MAX_ENVELOPE_TTL)) return null;
+  if (!isIntegerInRange(value.hopCount, 0, MAX_ENVELOPE_HOP_COUNT)) {
+    return null;
+  }
+  if (typeof value.sentAt !== 'string' || !isIsoInstant(value.sentAt)) {
+    return null;
+  }
+  const body = validateEnvelopeBody(value.body);
+  if (body === null) return null;
+
+  return {
+    v: 1,
+    kind: 'msg.envelope',
+    id: value.id as MessageId,
+    originDeviceId: value.originDeviceId as DeviceId,
+    destinationDeviceId:
+      value.destinationDeviceId === null
+        ? null
+        : (value.destinationDeviceId as DeviceId),
+    ttl: value.ttl,
+    hopCount: value.hopCount,
+    sentAt: value.sentAt,
+    body,
+  };
+}
+
+function validateEnvelopeBody(value: unknown): EnvelopeBody | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.kind !== 'string') return null;
+  if (value.kind === 'test.ping') {
+    return validateTestPingBody(value);
+  }
+  return null;
+}
+
+function validateTestPingBody(value: Record<string, unknown>): TestPingBody | null {
+  const payload = value.payload;
+  if (!isRecord(payload)) return null;
+  if (typeof payload.textPreview !== 'string') return null;
+  if (payload.textPreview.length > 512) return null;
+  return {
+    kind: 'test.ping',
+    payload: { textPreview: payload.textPreview },
+  };
+}
+
+function isIntegerInRange(
+  value: unknown,
+  min: number,
+  max: number,
+): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= min &&
+    value <= max
+  );
 }
 
 function validateTestPing(value: unknown): TestPing | null {

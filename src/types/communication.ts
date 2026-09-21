@@ -36,3 +36,25 @@ export interface TestPing {
   readonly textPreview: string;
   readonly sentAt: string;
 }
+
+export const MAX_ENVELOPE_TTL = 5;
+export const MAX_ENVELOPE_HOP_COUNT = 64;
+
+export interface TestPingBody {
+  readonly kind: 'test.ping';
+  readonly payload: { readonly textPreview: string };
+}
+
+export type EnvelopeBody = TestPingBody;
+
+export interface MessageEnvelope {
+  readonly v: 1;
+  readonly kind: 'msg.envelope';
+  readonly id: MessageId;
+  readonly originDeviceId: DeviceId;
+  readonly destinationDeviceId: DeviceId | null;
+  readonly ttl: number;
+  readonly hopCount: number;
+  readonly sentAt: string;
+  readonly body: EnvelopeBody;
+}

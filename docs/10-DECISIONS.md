@@ -1591,3 +1591,119 @@ The user's Phase 3 spec is explicit: "first prove PHONE A ↔ PHONE B only. Not 
 
 ---
 
+## D-068 — Phase 4 relay wire format: `MessageEnvelope v1`
+
+**Status:** ACCEPTED (2026-09-21)
+
+### Decision
+
+Phase 4 introduces a new envelope wire format that carries the relay metadata Phase 3's `TestPing v1` (D-066) does not:
+
+```json
+{
+  "v": 1,
+  "kind": "msg.envelope",
+  "id": "<uuidv7 — preserved across every hop>",
+  "originDeviceId": "<uuidv7 — original creator>",
+  "destinationDeviceId": "<uuidv7 | null>",
+  "ttl": 5,
+  "hopCount": 0,
+  "sentAt": "<ISO instant — creator's local clock>",
+  "body": { "kind": "test.ping", "payload": { "textPreview": "hello from A" } }
+}
+```
+
+Framing is unchanged from D-065: 4-byte big-endian uint32 length prefix + UTF-8 JSON body on TCP port 8988; max frame 64 KB.
+
+Field constraints (enforced by `validateEnvelope` in `src/services/communication/codec.ts`):
+
+- `v` MUST equal `1`.
+- `kind` MUST equal `'msg.envelope'`.
+- `id`, `originDeviceId` MUST be valid UUIDv7.
+- `destinationDeviceId` MUST be `null` (broadcast / any-forwarder for diagnostics) or a valid UUIDv7.
+- `ttl` MUST be an integer in `[0, 5]`. `MAX_TTL = 5` on origin; the ceiling is re-decidable after physical evidence in Phase 4B without a code rewrite (only a schema change if the ceiling moves above 5).
+- `hopCount` MUST be an integer in `[0, 64]`.
+- `sentAt` MUST be a parseable ISO instant of length ≥ 20.
+- `body.kind` MUST be a string. For `body.kind === 'test.ping'`: `body.payload.textPreview` MUST be a string of length ≤ 512.
+
+Malformed / oversize / bad-version frames decode to `null`. The router emits `{ kind: 'envelopeRejected', reason }` and does not write to the DB or forward. This is the same discipline as D-065.
+
+### Reason
+
+- D-066's `TestPing v1` has no `ttl`, `hopCount`, `originDeviceId`, or `destinationDeviceId` — the exact fields multi-hop routing requires. A wrapping envelope keeps the existing framing (D-065) and dedupe (D-014) unchanged and lets future body kinds (`chat.text`, `location.ping`, `sos.signal`) reuse the same routing layer without further envelope changes.
+- `MAX_TTL = 5` is the illustration used in `docs/03-NETWORKING.md §14`. Bounding it now makes accidental propagation impossible; loosening it later is a versioned decision, not a silent config knob.
+- 64 KB frame cap is carried over unchanged (D-065); envelope overhead is ~256 bytes, leaving ~60 KB safe for `body.payload`.
+
+### Consequence
+
+- The router only accepts `v = 1`; any `v ≥ 2` frame is dropped with a rejected reason. Test #1 in `relay.test.ts` proves this.
+- Adding a new body kind is a codec change (add validator for `body.kind === 'new-kind'`) — no envelope-schema change, no D-068 amendment.
+- Renaming/removing a top-level envelope field (or changing a type) requires `v = 2` and a decision superseding D-068.
+- Phase 3's `TestPing v1` codec (D-066) remains supported for the Phase 3 diagnostic path in this repo; Phase 4 code paths use envelopes. The two do not share a wire message.
+
+---
+
+## D-069 — Phase 4 relay algorithm: sequential handoff
+
+**Status:** ACCEPTED (2026-09-21)
+
+### Decision
+
+The Phase 4A relay algorithm is **sequential handoff**, not group-owner fan-out. For a line topology `A → B → C`:
+
+1. B connects to A, receives the envelope, decodes / validates / dedupes / persists.
+2. If B is not the destination, B computes `ttl-1, hopCount+1` and enqueues the mutated envelope for forwarding.
+3. B disconnects from A's Wi-Fi Direct group, then connects to C's, then drains the queue by sending on the C socket.
+
+The full router semantics (dedupe via `MessageRepo.insertMessageIfAbsent`, `receivedFromAddress` exclusion, drainOnConnect) are specified in `docs/PHASE4-PLAN.md §4` and implemented in `src/services/communication/RelayRouter.ts`.
+
+The router uses the existing `Transport` interface unchanged — no `sendPayload(peer, bytes)` signature change. It layers on top of Phase 3's `WifiP2pTransport` and Phase 3's `SocketWorker` without any Kotlin modification.
+
+### Reason
+
+- Android `WifiP2pManager` allows one P2P group per device at a time. Phase 3's `SocketWorker` (`android/app/src/main/java/com/offgrid/p2p/SocketWorker.kt:44`, `:131-139`) is single-socket by construction: installing a new socket closes the previous one.
+- Sequential handoff requires **zero Kotlin change**. Group-owner fan-out requires B to accept two client sockets in one P2P group plus a discovery/connect flow that lets A and C find B simultaneously — a much larger native surface change with its own OEM-negotiation risk.
+- Sequential handoff also matches the store-and-forward mental model in `docs/03-NETWORKING.md §15` (B temporarily loses connection to A, later meets C, forwards) — the same code path serves both scenarios.
+- Latency cost (a few seconds of reconnect on real Wi-Fi Direct) is acceptable for a V0 proof. If Phase 4B measurements show this is unacceptable for a trekking group's real usage, GO fan-out becomes an evidence-driven optimization decision — not a leap into native code first.
+
+### Consequence
+
+- The router owns an in-memory `forwardQueue`. Envelopes persist to `messages` in step 1 (so the row survives an app crash), but the queue entry does not survive a restart in Phase 4A. Persistent queue is a Phase 4B+ concern.
+- **Loop / duplicate discipline** is defence-in-depth: (a) `receivedFromAddress` exclusion prevents forwarding an envelope back to the peer who just handed it to us; (b) `insertMessageIfAbsent` dedupe by `id` rejects any envelope we've already stored, including one that looped back through another path.
+- If Phase 4B measurements demand fan-out, a follow-up decision supersedes D-069 and admits concurrent sockets in Kotlin. D-069 is not a permanent commitment to sequential-only.
+- The Phase 4A tests exercise this algorithm without any native code (`MockRelayNetwork` triangle). Physical evidence comes in Phase 4B under D-070.
+
+---
+
+## D-070 — Phase 4B 3-device physical test matrix
+
+**Status:** ACCEPTED (2026-09-21)
+
+### Decision
+
+The Phase 4B physical run uses three Android devices:
+
+| Role | Model | Android | Notes |
+|---|---|---|---|
+| **A** — Origin | Motorola Edge 50 Neo | 15 | Confirmed working in Phase 3 (2026-09-21) |
+| **B** — Relay | iQOO Neo7 Pro | 14 | Confirmed working in Phase 3 (2026-09-21) |
+| **C** — Destination | Redmi 9i | 11 | Confirmed by user 2026-09-21; oldest Android in the matrix — surfaces API-32-fallback permission path (`ACCESS_FINE_LOCATION`, per D-064) and MIUI Wi-Fi Direct behavior |
+
+Six scenarios (S1–S6) are enumerated in `docs/PHASE4-PLAN.md §5`: line-forward, line-reverse, broadcast, duplicate suppression, TTL exhaustion, broken path. Any scenario that cannot be run is marked **BLOCKED** in `docs/PHASE4-REPORT.md`; no pass may be claimed without on-device evidence (CLAUDE.md §7 §8 §38; `docs/09-TESTING.md §N-005:290`).
+
+### Reason
+
+- D-053 established a 3-device compatibility floor; D-067 narrowed it to activate at the Phase 4 boundary. D-070 fills in the specific devices.
+- Reusing A and B from Phase 3 keeps prior evidence composable (their Wi-Fi Direct behavior is already characterized on the exact build).
+- Explicitly nominating the third device *before* physical evidence is collected prevents a "we tested with whatever was on the desk" outcome; the model and Android version become part of the record even if C is a loaner.
+
+### Consequence
+
+- Phase 4A completion does not depend on choosing C — the JS-side proof is independent of physical hardware.
+- Phone C is now confirmed (Redmi 9i, Android 11). The device-selection blocker is cleared; D-070 can be flipped PROPOSED → ACCEPTED at the same time as D-068/D-069 when the Phase 4A design is approved.
+- Android 11 (API 30) means Phone C uses the `ACCESS_FINE_LOCATION` fallback branch of D-064, not `NEARBY_WIFI_DEVICES` (API 33+). Phase 4B must verify the permission flow works on that path on a physical device, not just via the unit test in `__tests__/permissions/nearbyWifiPermission.test.ts`.
+- MIUI's Wi-Fi Direct stack has historically added extra prompts / battery-saver interference; document any OEM-specific behavior encountered in `docs/PHASE4-REPORT.md` and, if it forces a code path change, open a new decision — not a silent workaround.
+- If C's Wi-Fi Direct implementation exposes an OEM-specific failure mode not observed on A/B, that becomes a new decision entry — not a silent workaround.
+
+---
+

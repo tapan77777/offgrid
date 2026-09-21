@@ -20,4 +20,16 @@ export {
   isDiagnosticsEnabled,
   setDiagnosticsEnabled,
 } from './testGroup';
-export { decodeTestPing, encodeTestPing } from './codec';
+export {
+  decodeEnvelope,
+  decodeTestPing,
+  encodeEnvelope,
+  encodeTestPing,
+  validateEnvelope,
+} from './codec';
+export { RelayRouter } from './RelayRouter';
+export type {
+  RelayRouterEvent,
+  RelayRouterListener,
+  RelayRouterOptions,
+} from './RelayRouter';
