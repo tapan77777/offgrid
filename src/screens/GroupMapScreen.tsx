@@ -161,6 +161,16 @@ export function GroupMapScreen({
       </View>
 
       <View style={styles.section}>
+        <Button
+          label="Manage offline maps"
+          variant="ghost"
+          leadingIcon="map"
+          onPress={() => navigation.navigate('OfflineMaps')}
+          testID="group-map-offline-cta"
+        />
+      </View>
+
+      <View style={styles.section}>
         <SectionHeader
           title="Members"
           trailing={

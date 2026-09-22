@@ -71,6 +71,10 @@ yarn-error.log
 .env.local
 .env.*.local
 
+# OFFGRID: MapTiler credentials — real API key lives here locally. Never
+# commit. The tracked `mapTilerCredentials.example.ts` is the safe template.
+src/config/mapTilerCredentials.ts
+
 # OFFGRID: OS junk
 .DS_Store
 

@@ -45,6 +45,51 @@ const DISALLOWED_OFFLINE_HOSTS = new Set<string>([
   'c.tile.openstreetmap.org',
 ]);
 
+// MapTiler provider factory (P-005). The renderer stays MapLibre (D-072);
+// MapTiler supplies OSM-derived vector tiles + style + offline permission.
+//
+// Contract:
+//   - The API key is opaque to this module. Callers pass it in; if it's
+//     null/empty the factory returns null so bootstrap can fall back to the
+//     default demo provider without pretending offline downloads work.
+//   - `maxOfflineTileCount` is intentionally low (8000) so a fat-fingered
+//     download does not burn a user's monthly MapTiler quota. Callers can
+//     raise it explicitly.
+//
+// MapTiler's Terms of Service permit prefetch / offline caching for mobile
+// apps on their paid plans, so `downloadPolicy` is `permitted` when a key
+// is present. See https://www.maptiler.com/cloud/terms/ .
+const MAPTILER_STYLE_URL_TEMPLATE =
+  'https://api.maptiler.com/maps/{styleId}/style.json?key={apiKey}';
+
+export function buildMapTilerStyleUrl(
+  styleId: string,
+  apiKey: string,
+): string {
+  return MAPTILER_STYLE_URL_TEMPLATE
+    .replace('{styleId}', encodeURIComponent(styleId))
+    .replace('{apiKey}', encodeURIComponent(apiKey));
+}
+
+export function makeMapTilerProvider(input: {
+  readonly apiKey: string | null;
+  readonly styleId: string;
+  readonly maxOfflineTileCount?: number;
+}): MapProviderConfig | null {
+  const key = input.apiKey?.trim();
+  const style = input.styleId?.trim();
+  if (!key || !style) {
+    return null;
+  }
+  return {
+    id: `maptiler:${style}`,
+    styleUrl: buildMapTilerStyleUrl(style, key),
+    attribution: '© MapTiler © OpenStreetMap contributors',
+    downloadPolicy: 'permitted',
+    maxOfflineTileCount: input.maxOfflineTileCount ?? 8000,
+  };
+}
+
 let current: MapProviderConfig = DEFAULT_MAP_PROVIDER;
 
 export function getMapProvider(): MapProviderConfig {

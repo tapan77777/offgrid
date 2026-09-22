@@ -4,6 +4,7 @@ import { MainTabs } from './MainTabs';
 import { GroupScreen } from '../screens/GroupScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { GroupMapScreen } from '../screens/GroupMapScreen';
+import { OfflineMapsScreen } from '../screens/OfflineMapsScreen';
 import { MembersScreen } from '../screens/MembersScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AdvancedScreen } from '../screens/AdvancedScreen';
@@ -18,6 +19,7 @@ export type RootStackParamList = {
   Group: { groupId: string };
   Chat: { groupId?: string } | undefined;
   Map: { groupId?: string } | undefined;
+  OfflineMaps: undefined;
   Members: { groupId: string };
   CreateGroup: undefined;
   JoinGroup: undefined;
@@ -64,6 +66,11 @@ export function RootStack(): React.JSX.Element {
         name="Map"
         component={GroupMapScreen}
         options={{ title: 'Group map' }}
+      />
+      <Stack.Screen
+        name="OfflineMaps"
+        component={OfflineMapsScreen}
+        options={{ title: 'Offline maps' }}
       />
       <Stack.Screen
         name="Members"

@@ -8,6 +8,7 @@ import { runMigrations } from '../database';
 import { applyStartupPragmas, createOpSqliteDb } from '../database/sqlite';
 import { ensureLocalDevice, ensureLocalUser } from './identity';
 import { ensureDiagnosticGroup, isDiagnosticsEnabled } from './communication';
+import { bootstrapMapProvider } from '../config/mapProviderBootstrap';
 import type { DevicePlatform } from '../types/entities';
 import type { DeviceId, UserId } from '../types/ids';
 
@@ -20,6 +21,8 @@ export interface AppBootstrapResult {
   readonly userId: UserId;
   readonly userWasCreated: boolean;
   readonly schemaVersion: number;
+  readonly mapProviderId: string;
+  readonly mapTilerConfigured: boolean;
 }
 
 let cached: AppBootstrapResult | null = null;
@@ -40,6 +43,7 @@ export function bootstrapApp(): AppBootstrapResult {
   if (isDiagnosticsEnabled(db)) {
     ensureDiagnosticGroup(db);
   }
+  const map = bootstrapMapProvider();
   cached = {
     db,
     deviceId: device.deviceId,
@@ -47,6 +51,8 @@ export function bootstrapApp(): AppBootstrapResult {
     userId: user.userId,
     userWasCreated: user.wasCreated,
     schemaVersion: migration.currentVersion,
+    mapProviderId: map.providerId,
+    mapTilerConfigured: map.mapTilerConfigured,
   };
   return cached;
 }
