@@ -13,6 +13,14 @@ describe('runMigrations', () => {
         version: 2,
         name: '0002_phase3_diagnostics_flag',
       }),
+      expect.objectContaining({
+        version: 3,
+        name: '0003_location_kinematics',
+      }),
+      expect.objectContaining({
+        version: 4,
+        name: '0004_group_location_sharing',
+      }),
     ]);
     db.close();
   });
@@ -21,11 +29,11 @@ describe('runMigrations', () => {
     const db = createInMemoryDb();
     const report = runMigrations(db);
     expect(report.appliedVersions).toEqual([]);
-    expect(report.currentVersion).toBe(2);
+    expect(report.currentVersion).toBe(4);
     db.close();
   });
 
-  it('creates all 12 Phase 2 tables', () => {
+  it('creates all Phase 2+ tables including group_location_sharing', () => {
     const db = createInMemoryDb();
     const { rows } = db.execute(
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
@@ -34,6 +42,7 @@ describe('runMigrations', () => {
     expect(names).toEqual(
       [
         'devices',
+        'group_location_sharing',
         'group_members',
         'groups',
         'locations',

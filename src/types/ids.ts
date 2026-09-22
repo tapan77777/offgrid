@@ -7,6 +7,7 @@ export type UserId = Brand<RawUuid, 'UserId'>;
 export type DeviceId = Brand<RawUuid, 'DeviceId'>;
 export type GroupId = Brand<RawUuid, 'GroupId'>;
 export type GroupMemberId = Brand<RawUuid, 'GroupMemberId'>;
+export type GroupLocationSharingId = Brand<RawUuid, 'GroupLocationSharingId'>;
 export type MessageId = Brand<RawUuid, 'MessageId'>;
 export type LocationId = Brand<RawUuid, 'LocationId'>;
 export type SafetyCheckinId = Brand<RawUuid, 'SafetyCheckinId'>;

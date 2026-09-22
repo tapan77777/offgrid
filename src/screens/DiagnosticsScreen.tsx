@@ -20,6 +20,8 @@ import {
   isDiagnosticsEnabled,
   setDiagnosticsEnabled,
 } from '../services/communication';
+import { setActiveCommunicationManager } from '../services/communication/commsRuntime';
+import { attachGroupLocationReceiver } from '../services/location/groupLocationReceiver';
 import { WifiP2pTransport } from '../services/communication/transports/WifiP2pTransport';
 import type { DeviceId } from '../types/ids';
 import { useAppFoundationStore } from '../store/appFoundationStore';
@@ -50,6 +52,7 @@ export function DiagnosticsScreen(): React.JSX.Element {
 
   const managerRef = useRef<CommunicationManager | null>(null);
   const routerRef = useRef<RelayRouter | null>(null);
+  const receiverUnsubRef = useRef<(() => void) | null>(null);
   const [permission, setPermission] = useState<PermissionStatus>('unknown');
   const [enabled, setEnabled] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
@@ -89,8 +92,12 @@ export function DiagnosticsScreen(): React.JSX.Element {
     return () => {
       const mgr = managerRef.current;
       const router = routerRef.current;
+      const detachRx = receiverUnsubRef.current;
       managerRef.current = null;
       routerRef.current = null;
+      receiverUnsubRef.current = null;
+      setActiveCommunicationManager(null);
+      if (detachRx) detachRx();
       if (router) {
         router.detach();
       }
@@ -139,6 +146,17 @@ export function DiagnosticsScreen(): React.JSX.Element {
             event.wasDuplicate ? 'duplicate' : 'received',
             `${event.wasDuplicate ? 'duplicate' : 'received'} ping ${event.ping.id.slice(0, 8)}… from ${event.ping.fromDeviceId.slice(0, 8)}…`,
           );
+          return;
+        case 'groupLocationEnvelopeSent':
+          pushLog(
+            'sent',
+            `group-location sent ${event.envelope.id.slice(0, 8)}…`,
+          );
+          return;
+        case 'groupLocationEnvelopeReceived':
+          // Persistence + accepted/duplicate/rejected logging is handled by
+          // the attached receiver worker (attachGroupLocationReceiver). The
+          // manager only surfaces the raw event here.
           return;
         case 'payloadRejected':
           pushLog('rejected', `payload rejected: ${event.reason}`);
@@ -204,6 +222,39 @@ export function DiagnosticsScreen(): React.JSX.Element {
     router.attach();
     managerRef.current = manager;
     routerRef.current = router;
+    setActiveCommunicationManager(manager);
+    receiverUnsubRef.current = attachGroupLocationReceiver({
+      db,
+      manager,
+      onOutcome: outcome => {
+        switch (outcome.status) {
+          case 'accepted':
+            pushLog(
+              'received',
+              `group-location accepted from ${outcome.location.userId.slice(0, 8)}… (${outcome.location.latitude.toFixed(4)}, ${outcome.location.longitude.toFixed(4)})`,
+            );
+            return;
+          case 'duplicate':
+            pushLog(
+              'duplicate',
+              `group-location duplicate ${outcome.location.id.slice(0, 8)}…`,
+            );
+            return;
+          case 'group-not-found':
+            pushLog('rejected', 'group-location rejected: group-not-found');
+            return;
+          case 'not-a-member':
+            pushLog('rejected', 'group-location rejected: not-a-member');
+            return;
+          case 'invalid':
+            pushLog(
+              'rejected',
+              `group-location rejected: ${outcome.reason}`,
+            );
+            return;
+        }
+      },
+    });
     return manager;
   }, [
     localDeviceId,

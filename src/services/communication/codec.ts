@@ -1,5 +1,6 @@
 import type {
   EnvelopeBody,
+  GroupLocationBody,
   MessageEnvelope,
   TestPing,
   TestPingBody,
@@ -8,7 +9,13 @@ import {
   MAX_ENVELOPE_HOP_COUNT,
   MAX_ENVELOPE_TTL,
 } from '../../types/communication';
-import type { DeviceId, MessageId } from '../../types/ids';
+import type {
+  DeviceId,
+  GroupId,
+  LocationId,
+  MessageId,
+  UserId,
+} from '../../types/ids';
 import { isUuidV7 } from '../../utils/ids';
 
 const LENGTH_PREFIX_BYTES = 4;
@@ -256,6 +263,9 @@ function validateEnvelopeBody(value: unknown): EnvelopeBody | null {
   if (value.kind === 'test.ping') {
     return validateTestPingBody(value);
   }
+  if (value.kind === 'group.location') {
+    return validateGroupLocationBody(value);
+  }
   return null;
 }
 
@@ -268,6 +278,91 @@ function validateTestPingBody(value: Record<string, unknown>): TestPingBody | nu
     kind: 'test.ping',
     payload: { textPreview: payload.textPreview },
   };
+}
+
+function validateGroupLocationBody(
+  value: Record<string, unknown>,
+): GroupLocationBody | null {
+  const payload = value.payload;
+  if (!isRecord(payload)) return null;
+  if (typeof payload.groupId !== 'string' || !isUuidV7(payload.groupId)) {
+    return null;
+  }
+  if (
+    typeof payload.senderUserId !== 'string' ||
+    !isUuidV7(payload.senderUserId)
+  ) {
+    return null;
+  }
+  if (typeof payload.locationId !== 'string' || !isUuidV7(payload.locationId)) {
+    return null;
+  }
+  if (!isLatitude(payload.latitude)) return null;
+  if (!isLongitude(payload.longitude)) return null;
+  const accuracy = normalizeOptional(payload.accuracy, 0, Number.POSITIVE_INFINITY);
+  if (accuracy === undefined) return null;
+  const altitude = normalizeOptional(
+    payload.altitude,
+    Number.NEGATIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+  );
+  if (altitude === undefined) return null;
+  const heading = normalizeOptional(payload.heading, 0, 360);
+  if (heading === undefined) return null;
+  const speed = normalizeOptional(payload.speed, 0, Number.POSITIVE_INFINITY);
+  if (speed === undefined) return null;
+  if (typeof payload.capturedAt !== 'string' || !isIsoInstant(payload.capturedAt)) {
+    return null;
+  }
+  return {
+    kind: 'group.location',
+    payload: {
+      groupId: payload.groupId as GroupId,
+      senderUserId: payload.senderUserId as UserId,
+      locationId: payload.locationId as LocationId,
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      accuracy,
+      altitude,
+      heading,
+      speed,
+      capturedAt: payload.capturedAt,
+    },
+  };
+}
+
+function isLatitude(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= -90 &&
+    value <= 90
+  );
+}
+
+function isLongitude(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= -180 &&
+    value <= 180
+  );
+}
+
+// Returns:
+//   - the number when present and inside [min, max]
+//   - null when explicitly missing (null / undefined)
+//   - undefined when the value is present but invalid (out of range,
+//     non-finite, wrong type) — callers treat undefined as "reject envelope"
+function normalizeOptional(
+  value: unknown,
+  min: number,
+  max: number,
+): number | null | undefined {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  if (value < min || value > max) return undefined;
+  return value;
 }
 
 function isIntegerInRange(

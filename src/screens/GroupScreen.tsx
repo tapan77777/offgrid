@@ -24,6 +24,19 @@ import {
   renameGroup,
   type GroupDetail,
 } from '../services/groups';
+import {
+  GroupLocationSharingError,
+  disableGroupLocationSharing,
+  enableGroupLocationSharing,
+  getMyGroupLocationSharingView,
+  sendGroupLocation,
+  type GroupLocationSharingView,
+  type SendGroupLocationOutcome,
+} from '../services/location';
+import {
+  getActiveCommunicationManager,
+  subscribeToActiveCommunicationManager,
+} from '../services/communication/commsRuntime';
 import type { RootStackParamList } from '../navigation/RootStack';
 import type { GroupId, UserId } from '../types/ids';
 
@@ -34,6 +47,7 @@ export function GroupScreen(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
   const route = useRoute<GroupRoute>();
   const localUserId = useAppFoundationStore(s => s.localUserId);
+  const localDeviceId = useAppFoundationStore(s => s.localDeviceId);
   const refreshGroups = useGroupsStore(s => s.refresh);
 
   const [detail, setDetail] = useState<GroupDetail | null>(null);
@@ -42,6 +56,21 @@ export function GroupScreen(): React.JSX.Element {
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sharingView, setSharingView] =
+    useState<GroupLocationSharingView | null>(null);
+  const [sharingBusy, setSharingBusy] = useState(false);
+  const [sendStatus, setSendStatus] = useState<GroupLocationSendStatus>({
+    kind: 'idle',
+  });
+  const [commsAvailable, setCommsAvailable] = useState<boolean>(
+    getActiveCommunicationManager() !== null,
+  );
+
+  useEffect(() => {
+    return subscribeToActiveCommunicationManager(m => {
+      setCommsAvailable(m !== null);
+    });
+  }, []);
 
   const groupId = route.params?.groupId as GroupId | undefined;
 
@@ -56,10 +85,17 @@ export function GroupScreen(): React.JSX.Element {
       const next = getGroupDetail(db, groupId, localUserId);
       setDetail(next);
       setLoadError(null);
+      setSharingView(
+        getMyGroupLocationSharingView(db, {
+          groupId,
+          userId: localUserId,
+        }),
+      );
     } catch (err) {
       const msg = err instanceof GroupsError ? err.message : String(err);
       setLoadError(msg);
       setDetail(null);
+      setSharingView(null);
     } finally {
       setLoading(false);
     }
@@ -156,6 +192,64 @@ export function GroupScreen(): React.JSX.Element {
       ],
     );
   }, [detail, localUserId, performLeave]);
+
+  const toggleSharing = useCallback(() => {
+    if (!detail || !localUserId || sharingBusy) {
+      return;
+    }
+    setSharingBusy(true);
+    try {
+      const { db } = bootstrapApp();
+      const currentlyEnabled = sharingView?.sharing === 'enabled';
+      if (currentlyEnabled) {
+        disableGroupLocationSharing(db, {
+          groupId: detail.group.id,
+          userId: localUserId,
+        });
+      } else {
+        enableGroupLocationSharing(db, {
+          groupId: detail.group.id,
+          userId: localUserId,
+        });
+      }
+      setSharingView(
+        getMyGroupLocationSharingView(db, {
+          groupId: detail.group.id,
+          userId: localUserId,
+        }),
+      );
+    } catch (err) {
+      const msg =
+        err instanceof GroupLocationSharingError ? err.message : String(err);
+      Alert.alert('Location sharing', msg);
+    } finally {
+      setSharingBusy(false);
+    }
+  }, [detail, localUserId, sharingBusy, sharingView]);
+
+  const onShareCurrentLocation = useCallback(async () => {
+    if (!detail || !localUserId) return;
+    const manager = getActiveCommunicationManager();
+    if (!manager) {
+      setSendStatus({ kind: 'no-comms' });
+      return;
+    }
+    setSendStatus({ kind: 'sending' });
+    try {
+      const { db } = bootstrapApp();
+      const outcome = await sendGroupLocation({
+        db,
+        groupId: detail.group.id,
+        userId: localUserId,
+        deviceId: localDeviceId ?? null,
+        sendEnvelope: body => manager.sendGroupLocationEnvelope(body),
+      });
+      setSendStatus(outcomeToStatus(outcome));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSendStatus({ kind: 'failed', reason: message });
+    }
+  }, [detail, localDeviceId, localUserId]);
 
   if (loading) {
     return (
@@ -267,12 +361,13 @@ export function GroupScreen(): React.JSX.Element {
           <Card
             style={styles.tile}
             onPress={() => navigation.navigate('Map', { groupId: detail.group.id })}
-            accessibilityLabel="Open map preview"
+            accessibilityLabel="Open group map"
+            testID="group-open-map"
           >
             <IconBadge name="map" tone="brand" />
             <View style={styles.tileText}>
               <Text style={typography.bodyStrong}>Map</Text>
-              <Text style={typography.caption}>Preview</Text>
+              <Text style={typography.caption}>Group positions</Text>
             </View>
           </Card>
           <Card
@@ -328,6 +423,47 @@ export function GroupScreen(): React.JSX.Element {
       </View>
 
       <View style={styles.section}>
+        <SectionHeader title="Location" />
+        <Card testID="group-location-card">
+          <LocationSharingSummary view={sharingView} />
+          <View style={styles.locationActions}>
+            <Button
+              label={
+                sharingView?.sharing === 'enabled'
+                  ? 'Stop sharing my location'
+                  : 'Share my location with this group'
+              }
+              variant={
+                sharingView?.sharing === 'enabled' ? 'secondary' : 'primary'
+              }
+              onPress={toggleSharing}
+              disabled={sharingBusy || sharingView === null}
+              testID="group-location-toggle"
+            />
+            <Button
+              label={
+                sendStatus.kind === 'sending'
+                  ? 'Sending…'
+                  : 'Share current location now'
+              }
+              variant="secondary"
+              onPress={onShareCurrentLocation}
+              disabled={
+                sharingView?.sharing !== 'enabled' ||
+                sendStatus.kind === 'sending'
+              }
+              testID="group-location-share-now"
+            />
+          </View>
+          <SendStatusText status={sendStatus} commsAvailable={commsAvailable} />
+          <Text style={[typography.caption, styles.locationNote]}>
+            Sharing stays local until a live connection is available. No one
+            outside this group can see your location.
+          </Text>
+        </Card>
+      </View>
+
+      <View style={styles.section}>
         <SectionHeader title="Safety" />
         <View style={styles.safetyStack}>
           <SafetyActionButton kind="imSafe" disabled />
@@ -340,8 +476,8 @@ export function GroupScreen(): React.JSX.Element {
 
       <View style={styles.section}>
         <ComingSoonNotice
-          feature="Group chat and live location"
-          detail="Messaging and live location updates will unlock once the transport lifecycle is wired into the consumer app."
+          feature="Group chat"
+          detail="Messaging will unlock once the transport lifecycle is wired into the consumer app."
         />
       </View>
 
@@ -372,6 +508,173 @@ export function GroupScreen(): React.JSX.Element {
 
 function shortId(id: string): string {
   return `Member ${id.slice(0, 6)}`;
+}
+
+function LocationSharingSummary({
+  view,
+}: {
+  readonly view: GroupLocationSharingView | null;
+}): React.JSX.Element {
+  if (view === null) {
+    return (
+      <>
+        <StatusBadge tone="neutral" label="Loading" />
+        <Text style={[typography.bodySecondary, styles.locationBody]}>
+          Checking your location sharing state…
+        </Text>
+      </>
+    );
+  }
+  if (view.sharing === 'disabled') {
+    return (
+      <>
+        <StatusBadge tone="offline" label="Not sharing" />
+        <Text style={[typography.bodyStrong, styles.locationBody]}>
+          Location sharing is off for this group.
+        </Text>
+        <Text style={typography.bodySecondary}>
+          Turn it on to let group members see where you are once a connection is
+          available.
+        </Text>
+      </>
+    );
+  }
+  if (view.location === 'unavailable') {
+    return (
+      <>
+        <StatusBadge tone="stale" label="No location yet" />
+        <Text style={[typography.bodyStrong, styles.locationBody]}>
+          Sharing is on, but this device has no location fix yet.
+        </Text>
+        <Text style={typography.bodySecondary}>
+          Use the Home screen to acquire a GPS fix.
+        </Text>
+      </>
+    );
+  }
+  if (view.location === 'stale') {
+    return (
+      <>
+        <StatusBadge tone="stale" label="Last known" />
+        <Text style={[typography.bodyStrong, styles.locationBody]}>
+          Sharing your last-known location
+        </Text>
+        <Text style={typography.bodySecondary}>
+          {`Updated ${formatAge(view.ageMs)} ago.`}
+        </Text>
+      </>
+    );
+  }
+  return (
+    <>
+      <StatusBadge tone="connected" label="Sharing" />
+      <Text style={[typography.bodyStrong, styles.locationBody]}>
+        Sharing your current location with this group
+      </Text>
+      <Text style={typography.bodySecondary}>
+        {`Updated ${formatAge(view.ageMs)} ago.`}
+      </Text>
+    </>
+  );
+}
+
+type GroupLocationSendStatus =
+  | { kind: 'idle' }
+  | { kind: 'sending' }
+  | { kind: 'sent' }
+  | { kind: 'sharing-disabled' }
+  | { kind: 'not-a-member' }
+  | { kind: 'no-fix'; reason: string }
+  | { kind: 'no-comms' }
+  | { kind: 'failed'; reason: string };
+
+function outcomeToStatus(
+  outcome: SendGroupLocationOutcome,
+): GroupLocationSendStatus {
+  switch (outcome.status) {
+    case 'sent':
+      return { kind: 'sent' };
+    case 'sharing-disabled':
+      return { kind: 'sharing-disabled' };
+    case 'not-a-member':
+      return { kind: 'not-a-member' };
+    case 'no-fix':
+      return {
+        kind: 'no-fix',
+        reason:
+          outcome.reason.status === 'permission-denied'
+            ? 'Location permission is denied.'
+            : outcome.reason.status === 'timeout'
+              ? 'Location request timed out.'
+              : outcome.reason.status === 'unavailable'
+                ? outcome.reason.reason
+                : 'Location unavailable.',
+      };
+    case 'transport-error':
+      return { kind: 'failed', reason: outcome.error.message };
+  }
+}
+
+function SendStatusText({
+  status,
+  commsAvailable,
+}: {
+  readonly status: GroupLocationSendStatus;
+  readonly commsAvailable: boolean;
+}): React.JSX.Element | null {
+  if (status.kind === 'idle' && commsAvailable) return null;
+  if (status.kind === 'idle' && !commsAvailable) {
+    return (
+      <Text style={[typography.caption, styles.sendStatus]}>
+        No connection: open the diagnostics screen to start a session.
+      </Text>
+    );
+  }
+  const label = ((): string => {
+    switch (status.kind) {
+      case 'sending':
+        return 'Sending your current location…';
+      case 'sent':
+        return 'Sent to the local session. No delivery confirmation yet.';
+      case 'sharing-disabled':
+        return 'Sharing is off for this group. Turn it on first.';
+      case 'not-a-member':
+        return 'You are no longer an active member of this group.';
+      case 'no-fix':
+        return `Location unavailable: ${status.reason}`;
+      case 'no-comms':
+        return 'No connection: open the diagnostics screen to start a session.';
+      case 'failed':
+        return `Failed: ${status.reason}`;
+      case 'idle':
+        return '';
+    }
+  })();
+  return (
+    <Text
+      style={[typography.caption, styles.sendStatus]}
+      testID="group-location-share-status"
+    >
+      {label}
+    </Text>
+  );
+}
+
+function formatAge(ageMs: number): string {
+  const seconds = Math.max(0, Math.round(ageMs / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
 }
 
 const styles = StyleSheet.create({
@@ -422,6 +725,21 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: spacing.xxs,
     paddingHorizontal: spacing.xxs,
+  },
+  locationBody: {
+    marginTop: spacing.sm,
+  },
+  locationActions: {
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  locationNote: {
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+  },
+  sendStatus: {
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
   },
   actions: {
     flexDirection: 'row',

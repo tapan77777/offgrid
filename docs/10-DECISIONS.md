@@ -1463,7 +1463,7 @@ The forward-looking TurboModule spec is kept at `specs/NativeOffgridP2p.ts` as d
 
 ## D-064 — Phase 3 Android permissions
 
-**Status:** ACCEPTED (2026-09-20)
+**Status:** ACCEPTED (2026-09-20) — location entries superseded by D-071 (2026-09-21)
 
 ### Decision
 
@@ -1487,6 +1487,8 @@ The forward-looking TurboModule spec is kept at `specs/NativeOffgridP2p.ts` as d
 - `ACCESS_FINE_LOCATION` with `maxSdkVersion="32"` (runtime/dangerous): fallback for API ≤32 only. Discovery on those OS versions additionally requires system Location Mode to be ON.
 
 No `CHANGE_NETWORK_STATE`. No foreground service is declared in Phase 3 — discovery only runs while the diagnostics screen is foregrounded (Security §21: nearby discovery does not equal authorization; do not run silent background scans).
+
+> **Supersession note (D-071, 2026-09-21):** The GPS/Location Foundation milestone needs runtime location on API 33+ as well (for the GPS UX itself, not for Wi-Fi Direct). D-071 removes the `maxSdkVersion="32"` cap on `ACCESS_FINE_LOCATION`, adds `ACCESS_COARSE_LOCATION`, and keeps `NEARBY_WIFI_DEVICES` with `neverForLocation` unchanged. The permissions are semantically independent: Wi-Fi Direct discovery still uses `NEARBY_WIFI_DEVICES` (never location), and the location prompt is only shown when a user opens the location diagnostic surface. See D-071 for the current manifest and rationale.
 
 ### Reason
 
@@ -1704,6 +1706,53 @@ Six scenarios (S1–S6) are enumerated in `docs/PHASE4-PLAN.md §5`: line-forwar
 - Android 11 (API 30) means Phone C uses the `ACCESS_FINE_LOCATION` fallback branch of D-064, not `NEARBY_WIFI_DEVICES` (API 33+). Phase 4B must verify the permission flow works on that path on a physical device, not just via the unit test in `__tests__/permissions/nearbyWifiPermission.test.ts`.
 - MIUI's Wi-Fi Direct stack has historically added extra prompts / battery-saver interference; document any OEM-specific behavior encountered in `docs/PHASE4-REPORT.md` and, if it forces a code path change, open a new decision — not a silent workaround.
 - If C's Wi-Fi Direct implementation exposes an OEM-specific failure mode not observed on A/B, that becomes a new decision entry — not a silent workaround.
+
+---
+
+## D-071 — GPS/Location Foundation: Android LocationManager, foreground-only, no Play Services
+
+**Status:** ACCEPTED (2026-09-21)
+
+### Decision
+
+The GPS/Location Foundation milestone (Phase 5-adjacent local-only prerequisite) uses `android.location.LocationManager` directly — **not** `com.google.android.gms.location.FusedLocationProviderClient`.
+
+Foreground-only: no `FOREGROUND_SERVICE_LOCATION`, no background updates, no continuous tracking. A user must have a foregrounded OFFGRID screen open (initially the location diagnostic surface under Settings → Advanced) for a fix to be requested.
+
+`android/app/src/main/AndroidManifest.xml` declares:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+<uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
+<uses-permission
+    android:name="android.permission.NEARBY_WIFI_DEVICES"
+    android:usesPermissionFlags="neverForLocation"
+    tools:targetApi="tiramisu" />
+
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+```
+
+- `ACCESS_FINE_LOCATION` (runtime/dangerous): required for high-accuracy GPS fixes across all supported API levels. The `maxSdkVersion="32"` cap from D-064 is removed — hikers need GPS on modern Android just as much as on Android ≤12.
+- `ACCESS_COARSE_LOCATION` (runtime/dangerous): declared so the module can fall back to network provider fixes if the user grants only "approximate location" on API 31+.
+- `NEARBY_WIFI_DEVICES` with `neverForLocation`: unchanged from D-064. Wi-Fi Direct discovery is still explicitly not location-derivation.
+
+### Reason
+
+- **No Play Services dependency.** OFFGRID's user base includes hikers who deliberately run degoogled / AOSP Android builds (LineageOS, GrapheneOS). Depending on `play-services-location` would silently exclude them and add ~200KB. Raw `LocationManager` is documented, stable, and works on any AOSP-compatible device.
+- **Foreground-only** keeps the security / privacy surface minimal for V0 (CLAUDE.md §15: respect OS permissions; §Privacy Rules: private groups are private). Background location + `FOREGROUND_SERVICE_LOCATION` is a much larger UX and Play Store surface — deferred until a real product feature (e.g., group live-location sharing) is scoped and approved.
+- **Two permissions, not one.** Android 12+ lets users grant "approximate" (coarse) only. Declaring both means the module can present an honest state (fine, coarse, denied, or provider disabled) instead of failing opaquely.
+- **Independent from Wi-Fi Direct.** D-064's `NEARBY_WIFI_DEVICES + neverForLocation` still holds. Users who never open the location screen never see a location prompt.
+
+### Consequence
+
+- Native module `com.offgrid.location.OffgridLocationModule` (classic bridged `ReactContextBaseJavaModule` per D-063) exposes `checkPermission()`, `isLocationEnabled()`, and `getCurrentLocation({ timeoutMs, maxAgeMs })`. No streaming subscriptions. No fake fallback: the promise rejects with `E_PERMISSION_DENIED`, `E_TIMEOUT`, or `E_LOCATION_REQUEST` and JS surfaces that state visibly (CLAUDE.md §14 §20).
+- SQLite `locations` table (migration 0001) + additive migration 0003 (`heading`, `speed`) is the source of truth. Every successful fix is inserted before any UI or network path treats it as delivered (§Local First; §Message Rules).
+- Cross-references: D-023 (Location Privacy: distinguish current vs last-known vs unknown vs sharing-disabled), D-042 (snake_case DB, camelCase TS), D-060 (UUIDv7 raw storage), D-063 (bridged module surface).
+- Any future need for background location, geofencing, or continuous tracking re-opens this decision. It will add `FOREGROUND_SERVICE_LOCATION`, a notification, and probably `ACCESS_BACKGROUND_LOCATION` (with the associated Play Store data disclosure).
+- Any future decision to adopt Play Services (e.g., for indoor Wi-Fi positioning) must document why AOSP support is being dropped — and probably keep the raw-LocationManager path as a fallback.
 
 ---
 

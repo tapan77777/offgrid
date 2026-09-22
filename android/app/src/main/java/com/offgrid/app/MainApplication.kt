@@ -6,6 +6,7 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
+import com.offgrid.location.OffgridLocationPackage
 import com.offgrid.p2p.OffgridP2pPackage
 
 class MainApplication : Application(), ReactApplication {
@@ -17,6 +18,9 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           // Phase 3 (D-063): classic bridged Wi-Fi Direct module.
           add(OffgridP2pPackage())
+          // GPS/Location Foundation (D-067): classic bridged LocationManager
+          // wrapper. Deliberately independent of Google Play Services.
+          add(OffgridLocationPackage())
         },
     )
   }

@@ -3,11 +3,12 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MainTabs } from './MainTabs';
 import { GroupScreen } from '../screens/GroupScreen';
 import { ChatScreen } from '../screens/ChatScreen';
-import { MapScreen } from '../screens/MapScreen';
+import { GroupMapScreen } from '../screens/GroupMapScreen';
 import { MembersScreen } from '../screens/MembersScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AdvancedScreen } from '../screens/AdvancedScreen';
 import { DiagnosticsScreen } from '../screens/DiagnosticsScreen';
+import { LocationDiagnosticsScreen } from '../screens/LocationDiagnosticsScreen';
 import { CreateGroupScreen } from '../screens/CreateGroupScreen';
 import { JoinGroupScreen } from '../screens/JoinGroupScreen';
 import { colors, typography } from '../theme';
@@ -23,6 +24,7 @@ export type RootStackParamList = {
   Settings: undefined;
   Advanced: undefined;
   Diagnostics: undefined;
+  LocationDiagnostics: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -60,8 +62,8 @@ export function RootStack(): React.JSX.Element {
       />
       <Stack.Screen
         name="Map"
-        component={MapScreen}
-        options={{ title: 'Map' }}
+        component={GroupMapScreen}
+        options={{ title: 'Group map' }}
       />
       <Stack.Screen
         name="Members"
@@ -92,6 +94,11 @@ export function RootStack(): React.JSX.Element {
         name="Diagnostics"
         component={DiagnosticsScreen}
         options={{ title: 'Diagnostics' }}
+      />
+      <Stack.Screen
+        name="LocationDiagnostics"
+        component={LocationDiagnosticsScreen}
+        options={{ title: 'Location' }}
       />
     </Stack.Navigator>
   );

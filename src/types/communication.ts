@@ -1,4 +1,10 @@
-import type { DeviceId, MessageId } from './ids';
+import type {
+  DeviceId,
+  GroupId,
+  LocationId,
+  MessageId,
+  UserId,
+} from './ids';
 
 export type TransportId = 'wifi-p2p' | 'mock';
 
@@ -45,7 +51,29 @@ export interface TestPingBody {
   readonly payload: { readonly textPreview: string };
 }
 
-export type EnvelopeBody = TestPingBody;
+// Direct group location payload (Milestone B V0). Carries a single fresh
+// location fix scoped to one private group. The sender must be an active
+// member with sharing explicitly enabled; the receiver must independently
+// verify that the sender is an active member of the same group on this
+// device before persisting the coordinate (D-023; CLAUDE.md §13 §15 §20).
+// hopCount on the envelope MUST stay 0 for this kind — direct-only V0.
+export interface GroupLocationBody {
+  readonly kind: 'group.location';
+  readonly payload: {
+    readonly groupId: GroupId;
+    readonly senderUserId: UserId;
+    readonly locationId: LocationId;
+    readonly latitude: number;
+    readonly longitude: number;
+    readonly accuracy: number | null;
+    readonly altitude: number | null;
+    readonly heading: number | null;
+    readonly speed: number | null;
+    readonly capturedAt: string;
+  };
+}
+
+export type EnvelopeBody = TestPingBody | GroupLocationBody;
 
 export interface MessageEnvelope {
   readonly v: 1;

@@ -57,3 +57,30 @@ export interface SettingRow {
   value: string | null;
   updated_at: string;
 }
+
+export interface LocationRow {
+  id: string;
+  user_id: string;
+  device_id: string | null;
+  group_id: string | null;
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  altitude: number | null;
+  heading: number | null;
+  speed: number | null;
+  source: string;
+  created_at: string;
+  expires_at: string | null;
+  sync_status: string;
+}
+
+export interface GroupLocationSharingRow {
+  id: string;
+  group_id: string;
+  user_id: string;
+  // Stored as INTEGER 0/1 in SQLite; adapter surfaces it as number.
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}

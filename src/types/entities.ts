@@ -1,7 +1,9 @@
 import type {
   DeviceId,
   GroupId,
+  GroupLocationSharingId,
   GroupMemberId,
+  LocationId,
   MessageId,
   UserId,
 } from './ids';
@@ -93,5 +95,42 @@ export interface Message {
 export interface Setting {
   key: string;
   value: string | null;
+  updatedAt: string;
+}
+
+export type LocationSource = 'gps' | 'peer' | 'cloud';
+
+export type LocationSyncStatus =
+  | 'NOT_SYNCED'
+  | 'SYNCING'
+  | 'SYNCED'
+  | 'SYNC_FAILED';
+
+export interface Location {
+  id: LocationId;
+  userId: UserId;
+  deviceId: DeviceId | null;
+  groupId: GroupId | null;
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  altitude: number | null;
+  heading: number | null;
+  speed: number | null;
+  source: LocationSource;
+  createdAt: string;
+  expiresAt: string | null;
+  syncStatus: LocationSyncStatus;
+}
+
+// Explicit per-(user, group) opt-in flag for local-first group location
+// sharing (D-023 + D-072). One row per (group_id, user_id); the `enabled`
+// bit is authoritative. Absence of a row is treated as OFF.
+export interface GroupLocationSharing {
+  id: GroupLocationSharingId;
+  groupId: GroupId;
+  userId: UserId;
+  enabled: boolean;
+  createdAt: string;
   updatedAt: string;
 }

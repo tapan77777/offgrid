@@ -2,13 +2,20 @@ import type { OffgridDb } from '../../database';
 import { MessageRepo } from '../../database/repositories';
 import type {
   ConnectionSnapshot,
+  GroupLocationBody,
+  MessageEnvelope,
   PeerHandle,
   TestPing,
   TransportState,
 } from '../../types/communication';
 import type { DeviceId, MessageId } from '../../types/ids';
 import { newUuidV7 } from '../../utils/ids';
-import { decodeEnvelope, decodeTestPing, encodeTestPing } from './codec';
+import {
+  decodeEnvelope,
+  decodeTestPing,
+  encodeEnvelope,
+  encodeTestPing,
+} from './codec';
 import {
   DIAGNOSTIC_GROUP_ID,
   DIAGNOSTIC_USER_ID,
@@ -29,6 +36,14 @@ export type CommunicationEvent =
       readonly kind: 'pingReceived';
       readonly ping: TestPing;
       readonly wasDuplicate: boolean;
+    }
+  | {
+      readonly kind: 'groupLocationEnvelopeSent';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'groupLocationEnvelopeReceived';
+      readonly envelope: MessageEnvelope;
     }
   | { readonly kind: 'payloadRejected'; readonly reason: string }
   | { readonly kind: 'error'; readonly message: string };
@@ -122,6 +137,31 @@ export class CommunicationManager {
     return ping;
   }
 
+  // Milestone B V0: direct-only group location broadcast. hopCount and ttl
+  // stay 0 so this envelope is never eligible for Phase 4B relay forwarding
+  // even if a RelayRouter happens to be attached to the same transport
+  // (D-069). Persistence of received rows is the receiver service's job —
+  // this method is transport-only.
+  async sendGroupLocationEnvelope(
+    body: GroupLocationBody,
+  ): Promise<MessageEnvelope> {
+    const envelope: MessageEnvelope = {
+      v: 1,
+      kind: 'msg.envelope',
+      id: body.payload.locationId as unknown as MessageId,
+      originDeviceId: this.localDeviceId,
+      destinationDeviceId: null,
+      ttl: 0,
+      hopCount: 0,
+      sentAt: this.nowIso(),
+      body,
+    };
+    const bytes = encodeEnvelope(envelope);
+    await this.transport.sendPayload(bytes);
+    this.emit({ kind: 'groupLocationEnvelopeSent', envelope });
+    return envelope;
+  }
+
   on(listener: CommunicationEventListener): () => void {
     this.listeners.add(listener);
     return () => {
@@ -170,11 +210,17 @@ export class CommunicationManager {
           });
           return;
         }
-        // Valid MessageEnvelope frames belong to RelayRouter (Phase 4B). We
-        // co-exist as dual subscribers on the same transport, so silently
-        // ignore envelope-shaped payloads here rather than emitting a
-        // misleading `payloadRejected`.
-        if (decodeEnvelope(event.bytes) !== null) {
+        const envelope = decodeEnvelope(event.bytes);
+        if (envelope) {
+          // Milestone B V0: surface group.location envelopes so a receiver
+          // service can validate + persist. All other envelope kinds are
+          // Phase 4B RelayRouter territory — leave them silent here.
+          if (envelope.body.kind === 'group.location') {
+            this.emit({
+              kind: 'groupLocationEnvelopeReceived',
+              envelope,
+            });
+          }
           return;
         }
         this.emit({

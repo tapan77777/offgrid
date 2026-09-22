@@ -37,6 +37,25 @@ export function AdvancedScreen(): React.JSX.Element {
           transport state and are not part of the normal app experience.
         </Text>
       </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Location" />
+        <Card padded={false} style={styles.listCard}>
+          <ListRow
+            title="Location diagnostics"
+            subtitle="One-shot GPS fix, permission state, accuracy"
+            icon="pin"
+            iconTone="brand"
+            onPress={() => navigation.navigate('LocationDiagnostics')}
+            accessibilityHint="Opens the location diagnostics screen"
+            testID="advanced-location-row"
+          />
+        </Card>
+        <Text style={[typography.caption, styles.footnote]}>
+          Developer view for the GPS foundation. No coordinates leave your
+          device.
+        </Text>
+      </View>
     </Screen>
   );
 }
