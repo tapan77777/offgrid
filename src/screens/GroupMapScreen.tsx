@@ -12,7 +12,7 @@ import { SectionHeader } from '../components/SectionHeader';
 import { StatusBadge } from '../components/StatusBadge';
 import { ListRow } from '../components/ListRow';
 import type { StatusTone } from '../components/StatusBadge';
-import { SchematicMapCanvas } from '../components/map/SchematicMapCanvas';
+import { MapLibreMapCanvas } from '../components/map/MapLibreMapCanvas';
 import type {
   MapCanvasComponent,
   MapCanvasMarker,
@@ -35,7 +35,7 @@ interface GroupMapScreenProps {
   readonly MapCanvas?: MapCanvasComponent;
 }
 
-// GroupMapScreen renders the real Group Map (D-023, Milestone C V0).
+// GroupMapScreen renders the real Group Map (D-023, D-072).
 //
 // It NEVER fabricates coordinates:
 //   - Own marker comes from the most recent local GPS row *only* when
@@ -46,12 +46,12 @@ interface GroupMapScreenProps {
 //     first location" state — no default coordinates.
 //
 // The map renderer is pluggable via the MapCanvas prop. The default is
-// SchematicMapCanvas because we have not yet configured a tile provider
-// (P-005). MapLibre (D-009/D-038) will plug into this same interface
-// without touching the screen.
+// MapLibreMapCanvas (D-072). SchematicMapCanvas is still available for
+// tests / dev fallback. Tile provider stays configurable via
+// `src/config/mapProvider.ts` (D-073, P-005 remains replaceable).
 
 export function GroupMapScreen({
-  MapCanvas = SchematicMapCanvas,
+  MapCanvas = MapLibreMapCanvas,
 }: GroupMapScreenProps = {}): React.JSX.Element {
   const navigation = useNavigation<Nav>();
   const route = useRoute<MapRoute>();

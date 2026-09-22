@@ -15,6 +15,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@maplibre/maplibre-react-native": "10.4.2",
     "@op-engineering/op-sqlite": "^18.2.4",
     "@react-native/new-app-screen": "0.87.1",
     "@react-navigation/bottom-tabs": "^7.19.2",

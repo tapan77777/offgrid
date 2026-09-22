@@ -19,3 +19,22 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// AGP 8+ disables custom BuildConfig fields by default. MapLibre RN 10.x
+// (@maplibre/maplibre-react-native) still declares BuildConfig fields in
+// its library `defaultConfig`, which fails configuration under AGP 8.
+// Re-enable the feature for that subproject only, so we don't broaden the
+// feature surface for our own app module. Ties in to D-072 (MapLibre RN
+// 10.x is intentionally pinned — 11.x requires Expo runtime, which D-047
+// forbids).
+subprojects { subproject ->
+    if (subproject.name == "maplibre_maplibre-react-native") {
+        subproject.plugins.withId("com.android.library") {
+            subproject.android {
+                buildFeatures {
+                    buildConfig = true
+                }
+            }
+        }
+    }
+}

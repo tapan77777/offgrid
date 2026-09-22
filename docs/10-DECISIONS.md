@@ -712,6 +712,8 @@ Must evaluate:
 - Cost
 - Usage limits
 
+D-073 has since locked the *shape* of the tile-provider abstraction (single `MapProviderConfig`, `downloadPolicy` default `disabled`, OSM public tile server blocked for downloads). The final vendor choice remains open — see D-073's "OSM-derived vector, offline-capable" direction.
+
 ---
 
 ## P-006 — Final V0 Transport
@@ -1753,6 +1755,95 @@ Foreground-only: no `FOREGROUND_SERVICE_LOCATION`, no background updates, no con
 - Cross-references: D-023 (Location Privacy: distinguish current vs last-known vs unknown vs sharing-disabled), D-042 (snake_case DB, camelCase TS), D-060 (UUIDv7 raw storage), D-063 (bridged module surface).
 - Any future need for background location, geofencing, or continuous tracking re-opens this decision. It will add `FOREGROUND_SERVICE_LOCATION`, a notification, and probably `ACCESS_BACKGROUND_LOCATION` (with the associated Play Store data disclosure).
 - Any future decision to adopt Play Services (e.g., for indoor Wi-Fi positioning) must document why AOSP support is being dropped — and probably keep the raw-LocationManager path as a fallback.
+
+---
+
+## D-072 — Real Map Rendering: MapLibre React Native (bare CLI, no Expo runtime)
+
+**Status:** ACCEPTED
+
+### Decision
+
+The Group Map (D-023) is rendered by `@maplibre/maplibre-react-native@10.4.2`. The GroupMapScreen keeps its `MapCanvasComponent` abstraction; `MapLibreMapCanvas` becomes the default, and `SchematicMapCanvas` is retained as a fallback for unit / snapshot tests and dev environments without a working native module.
+
+Concretely:
+
+- Package: `@maplibre/maplibre-react-native@10.4.2` (last release before the 11.x line required `expo >= 54` as a peer, which conflicts with D-047 "no Expo").
+- Android side: `minSdkVersion=24` already satisfies MapLibre RN 10.x's `minSdk=21`. `mavenCentral()` in `android/build.gradle` provides `org.maplibre.gl:*` transitively — no extra Maven repo declarations required. Autolinking wires `MLRNPackage` through RN 0.87's default `PackageList`.
+- Runtime: `MapLibreGL.Logger.setLogLevel('warning')` at module load. `MapView.onDidFailLoadingMap` flips a local `styleFailed` state so a style-load failure surfaces a clear fallback card ("Map style unavailable") instead of a silently blank map (CLAUDE.md §20 "UI must communicate actual system state").
+- Camera: initial stop is chosen by pure logic in `src/components/map/mapCameraFit.ts` — `bounds` fit for multiple markers (48px padding), `center + zoom 13` for a single marker, midpoint + zoom 15 for near-identical markers, and a deliberate world view `(0, 20) @ zoom 1.2` when there is nothing to show (D-023 §"no invented coordinates").
+- Markers: `PointAnnotation` per marker; variant → style is a pure function in `src/components/map/mapMarkerStyle.ts`. Invalid coordinates are filtered before render.
+- Attribution: rendered under the canvas from the provider config (never hard-coded).
+- Scope: foreground-only, consistent with D-071. No background rendering; no location-tracking mode enabled; no telemetry.
+
+### Reason
+
+- **MapLibre GL** is the only mature, permissively licensed vector renderer that works with our stack. Google Maps SDK is rejected by D-009 (privacy + AOSP support).
+- **10.x vs 11.x.** MapLibre RN 11 declares `expo` as a required peer. D-047 forbids Expo runtime for OFFGRID (bare RN CLI, no Expo modules core). 10.4.2 is the newest release that ships without that peer while still supporting RN 0.87 / Android SDK 24+.
+- **Preserving the `MapCanvasComponent` abstraction** keeps the map renderer replaceable. If MapLibre proves unsuitable on real devices (e.g., GPU crashes on specific vendors), we can swap the canvas without touching `GroupMapScreen` or the location pipeline.
+- **Style-load failure fallback** is required by CLAUDE.md §20: a blank map is a form of lying about state.
+
+### Alternatives considered
+
+- MapLibre RN 11.x — rejected: forces Expo runtime; conflicts with D-047.
+- `react-native-maps` (Google) — rejected by D-009 (privacy, no AOSP-only path).
+- MapLibre GL JS in a WebView — considered; deferred. Pure-JS renderer would work offline but adds a WebView-shaped attack surface and complicates the pluggable style path.
+- Custom WebGL renderer — out of scope for V0.
+
+### Consequence
+
+- New files: `src/components/map/MapLibreMapCanvas.tsx`, `src/components/map/mapCameraFit.ts`, `src/components/map/mapMarkerStyle.ts`, `src/services/maps/maplibreOfflineDriver.ts`, `__mocks__/@maplibre/maplibre-react-native.js` (Jest manual mock so tests do not require the native module).
+- `GroupMapScreen` default `MapCanvas` prop is now `MapLibreMapCanvas`. Tests that need a stub still pass `SchematicMapCanvas` explicitly.
+- All existing tests continue to pass (239 total); new tests cover camera fit, marker style, and offline-region service invariants.
+- Any bump past 10.x requires re-evaluating D-047 (Expo runtime) or waiting for a fork/branch that drops the Expo peer.
+
+---
+
+## D-073 — Map Tile Provider Abstraction (resolves P-005 direction, provider still replaceable)
+
+**Status:** ACCEPTED (direction). P-005 remains **OPEN** on the exact production provider.
+
+### Decision
+
+All tile-provider details (style URL, attribution, offline download policy, offline tile cap) live in a single config module: `src/config/mapProvider.ts`. `MapLibreMapCanvas` and the offline-region service both read the active provider through `getMapProvider()`; no provider URL is embedded in a screen, canvas, or service.
+
+The config object:
+
+```ts
+interface MapProviderConfig {
+  id: string;
+  styleUrl: string;
+  attribution: string;
+  downloadPolicy: 'disabled' | 'permitted';
+  maxOfflineTileCount: number;
+}
+```
+
+Rules the abstraction enforces:
+
+- **Default `downloadPolicy` is `disabled`.** The out-of-the-box `DEFAULT_MAP_PROVIDER` points at `https://demotiles.maplibre.org/style.json` and cannot download offline regions. A production build swaps the provider explicitly.
+- **Blocklist for OSM's public tile server.** `assertProviderAllowsOfflineDownload()` rejects any style URL whose host matches `tile.openstreetmap.org` (and standard subdomain variants), even when `downloadPolicy=permitted`. This is enforced by the offline-region service before any `createPack` call. Rationale: OSMF's Tile Usage Policy explicitly forbids bulk downloads / prefetch of the public tile server.
+- **OSM-derived vector tiles are the intended production direction.** The V1 plan is to ship a provider whose style/tiles are OSM-derived but served by an OSM-derived vector-tile provider (e.g., MapTiler / Stadia / self-hosted planetiler) that permits offline caching. **P-005 remains open** on the exact vendor; this decision only locks the *shape* of the abstraction and forbids the public OSM tile server for downloads.
+- **Attribution is a required field.** Empty attribution is not allowed for permitted providers.
+
+### Reason
+
+- CLAUDE.md §13 (privacy), §16 (dependency evaluation), §31 (do not invent product behavior): committing to a specific commercial provider without evaluating cost + licensing + coverage would be premature. Locking the *shape* (single config object, guard, blocklist) is not premature and unblocks the real-map milestone.
+- CLAUDE.md §23 (no feature creep): the abstraction avoids scattering provider knowledge across the codebase, so a future swap is a one-file change.
+- OSMF Tile Usage Policy is explicit; getting this wrong would result in the public tile server blocking our clients — a form of "honest connectivity" failure (CLAUDE.md §Honest Connectivity).
+
+### Alternatives considered
+
+- Hard-code the style URL in `MapLibreMapCanvas` — rejected: makes the provider unreplaceable and puts provider policy in a UI file.
+- Skip the guard and rely on operator discipline — rejected: the guard is the mechanical enforcement of a policy the docs already require.
+- Fully hard-code an OSM-derived provider in this milestone — rejected: P-005 is still open on cost/licensing; the direction (OSM-derived vector, offline-capable) is decided, the exact vendor is not.
+
+### Consequence
+
+- New file: `src/config/mapProvider.ts` with `DEFAULT_MAP_PROVIDER`, `getMapProvider`, `setMapProvider`, `resetMapProvider`, `assertProviderAllowsOfflineDownload`, and `DISALLOWED_OFFLINE_HOSTS`.
+- New service: `src/services/maps/offlineRegions.ts` (`OfflineRegionsService`) with an in-memory driver for tests and `src/services/maps/maplibreOfflineDriver.ts` for the real MapLibre `OfflineManager`. `create()` validates bounds + zoom + finite coords and calls `assertProviderAllowsOfflineDownload` before touching the driver.
+- P-005 stays open: the final vendor selection remains a product/licensing decision. When that decision is made, the change is a `setMapProvider({...})` in the app bootstrap; no other file changes.
+- Cross-references: D-009 (map choice / no Google Maps), D-023 (location privacy states), D-038 (renderer vs. provider split), D-072 (real map rendering), P-005 (final map provider).
 
 ---
 
