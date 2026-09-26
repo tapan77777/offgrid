@@ -2,12 +2,14 @@ import type {
   EnvelopeBody,
   GroupLocationBody,
   MessageEnvelope,
+  MsgTextBody,
   TestPing,
   TestPingBody,
 } from '../../types/communication';
 import {
   MAX_ENVELOPE_HOP_COUNT,
   MAX_ENVELOPE_TTL,
+  MAX_MSG_TEXT_UTF8_BYTES,
 } from '../../types/communication';
 import type {
   DeviceId,
@@ -266,7 +268,49 @@ function validateEnvelopeBody(value: unknown): EnvelopeBody | null {
   if (value.kind === 'group.location') {
     return validateGroupLocationBody(value);
   }
+  if (value.kind === 'msg.text') {
+    return validateMsgTextBody(value);
+  }
   return null;
+}
+
+function validateMsgTextBody(
+  value: Record<string, unknown>,
+): MsgTextBody | null {
+  const payload = value.payload;
+  if (!isRecord(payload)) return null;
+  if (typeof payload.groupId !== 'string' || !isUuidV7(payload.groupId)) {
+    return null;
+  }
+  if (
+    typeof payload.senderUserId !== 'string' ||
+    !isUuidV7(payload.senderUserId)
+  ) {
+    return null;
+  }
+  if (typeof payload.messageId !== 'string' || !isUuidV7(payload.messageId)) {
+    return null;
+  }
+  if (typeof payload.text !== 'string') return null;
+  const trimmed = payload.text.trim();
+  if (trimmed.length === 0) return null;
+  // Count UTF-8 bytes, not JS chars: multi-byte code points must not slip
+  // past the cap by looking short in JS's UTF-16 string length.
+  const bytes = utf8Encode(payload.text);
+  if (bytes.byteLength > MAX_MSG_TEXT_UTF8_BYTES) return null;
+  if (typeof payload.createdAt !== 'string' || !isIsoInstant(payload.createdAt)) {
+    return null;
+  }
+  return {
+    kind: 'msg.text',
+    payload: {
+      groupId: payload.groupId as GroupId,
+      senderUserId: payload.senderUserId as UserId,
+      messageId: payload.messageId as MessageId,
+      text: payload.text,
+      createdAt: payload.createdAt,
+    },
+  };
 }
 
 function validateTestPingBody(value: Record<string, unknown>): TestPingBody | null {

@@ -38,6 +38,9 @@ export interface Group {
   createdAt: string;
   updatedAt: string;
   status: GroupStatus;
+  // D-074: synthetic 1-to-1 direct-conversation groups have `isDirect=true`.
+  // Regular user-created groups have `isDirect=false`.
+  isDirect: boolean;
 }
 
 export type GroupMemberRole = 'admin' | 'member';

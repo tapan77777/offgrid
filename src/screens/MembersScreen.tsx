@@ -27,6 +27,10 @@ import {
   removeMember,
   type GroupDetail,
 } from '../services/groups';
+import {
+  DirectConversationInvariantError,
+  ensureDirectConversation,
+} from '../services/chat';
 import type { RootStackParamList } from '../navigation/RootStack';
 import type { GroupId, UserId } from '../types/ids';
 
@@ -129,6 +133,30 @@ export function MembersScreen(): React.JSX.Element {
     [detail, localUserId, performRemove],
   );
 
+  const handleMessage = useCallback(
+    (targetUserId: UserId) => {
+      if (!localUserId) return;
+      try {
+        const { db } = bootstrapApp();
+        const group = ensureDirectConversation(db, {
+          userA: localUserId,
+          userB: targetUserId,
+          nowIso: new Date().toISOString(),
+        });
+        navigation.navigate('Chat', { groupId: group.id });
+      } catch (err) {
+        const msg =
+          err instanceof DirectConversationInvariantError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        Alert.alert('Could not open direct message', msg);
+      }
+    },
+    [localUserId, navigation],
+  );
+
   if (loading) {
     return (
       <Screen scrollable testID="members-screen">
@@ -169,6 +197,8 @@ export function MembersScreen(): React.JSX.Element {
             const isSelf = member.userId === localUserId;
             const label = isSelf ? 'You' : shortId(member.userId);
             const canRemove = isAdmin && !isSelf && busyId !== member.userId;
+            const canMessage =
+              !isSelf && member.status === 'active' && localUserId !== null;
             return (
               <View key={member.id}>
                 {index > 0 ? <View style={styles.divider} /> : null}
@@ -180,15 +210,28 @@ export function MembersScreen(): React.JSX.Element {
                   trailing={
                     isSelf ? (
                       <StatusBadge tone="neutral" label="You" />
-                    ) : canRemove ? (
-                      <Button
-                        label="Remove"
-                        variant="ghost"
-                        size="sm"
-                        onPress={() => handleRemove(member.userId, label)}
-                        testID={`members-remove-${member.userId}`}
-                      />
-                    ) : undefined
+                    ) : (
+                      <View style={styles.trailingActions}>
+                        {canMessage ? (
+                          <Button
+                            label="Message"
+                            variant="ghost"
+                            size="sm"
+                            onPress={() => handleMessage(member.userId)}
+                            testID={`members-message-${member.userId}`}
+                          />
+                        ) : null}
+                        {canRemove ? (
+                          <Button
+                            label="Remove"
+                            variant="ghost"
+                            size="sm"
+                            onPress={() => handleRemove(member.userId, label)}
+                            testID={`members-remove-${member.userId}`}
+                          />
+                        ) : null}
+                      </View>
+                    )
                   }
                 />
               </View>
@@ -236,5 +279,10 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.divider,
     marginLeft: 48,
+  },
+  trailingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xxs,
   },
 });

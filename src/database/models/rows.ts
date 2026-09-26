@@ -24,6 +24,8 @@ export interface GroupRow {
   created_at: string;
   updated_at: string;
   status: string;
+  // Stored as INTEGER 0/1 in SQLite; adapter surfaces it as number. D-074.
+  is_direct: number;
 }
 
 export interface GroupMemberRow {

@@ -8,6 +8,7 @@ import { runMigrations } from '../database';
 import { applyStartupPragmas, createOpSqliteDb } from '../database/sqlite';
 import { ensureLocalDevice, ensureLocalUser } from './identity';
 import { ensureDiagnosticGroup, isDiagnosticsEnabled } from './communication';
+import { startChatRuntime } from './chat';
 import { bootstrapMapProvider } from '../config/mapProviderBootstrap';
 import type { DevicePlatform } from '../types/entities';
 import type { DeviceId, UserId } from '../types/ids';
@@ -43,6 +44,10 @@ export function bootstrapApp(): AppBootstrapResult {
   if (isDiagnosticsEnabled(db)) {
     ensureDiagnosticGroup(db);
   }
+  // Chat V1 (D-074). The chat runtime is idempotent — it attaches receivers and
+  // the outbox tick when a CommunicationManager becomes active and detaches
+  // when it goes away. Safe to call on every bootstrap; the first call wins.
+  startChatRuntime({ db, localUserId: user.userId });
   const map = bootstrapMapProvider();
   cached = {
     db,

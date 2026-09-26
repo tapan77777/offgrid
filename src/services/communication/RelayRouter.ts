@@ -192,6 +192,14 @@ export class RelayRouter {
       this.emit({ kind: 'envelopeRejected', reason: 'invalid-envelope' });
       return;
     }
+    // Chat V1 (D-074). msg.text envelopes belong to the chat pipeline —
+    // CommunicationManager surfaces them via `chatEnvelopeReceived`. If the
+    // RelayRouter happens to be attached to the same transport, do NOT
+    // persist under the diagnostic group and do NOT forward. Chat is
+    // direct-only in V1.
+    if (envelope.body.kind === 'msg.text') {
+      return;
+    }
     const existing = MessageRepo.findMessageById(this.db, envelope.id);
     if (existing !== null) {
       this.emit({

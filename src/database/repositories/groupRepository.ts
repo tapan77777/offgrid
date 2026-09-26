@@ -11,6 +11,7 @@ function toDomain(row: GroupRow): Group {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     status: row.status as GroupStatus,
+    isDirect: row.is_direct === 1,
   };
 }
 
@@ -19,19 +20,44 @@ export interface InsertGroupInput {
   name: string;
   createdBy?: UserId | null;
   nowIso: string;
+  isDirect?: boolean;
 }
 
 export function insertGroup(db: OffgridDb, input: InsertGroupInput): Group {
   db.execute(
-    `INSERT INTO groups (id, name, created_by, created_at, updated_at, status)
-     VALUES (?, ?, ?, ?, ?, 'active')`,
-    [input.id, input.name, input.createdBy ?? null, input.nowIso, input.nowIso],
+    `INSERT INTO groups (id, name, created_by, created_at, updated_at, status, is_direct)
+     VALUES (?, ?, ?, ?, ?, 'active', ?)`,
+    [
+      input.id,
+      input.name,
+      input.createdBy ?? null,
+      input.nowIso,
+      input.nowIso,
+      input.isDirect ? 1 : 0,
+    ],
   );
   return requireById(db, input.id);
 }
 
 export function findGroupById(db: OffgridDb, id: GroupId): Group | null {
   const { rows } = db.execute('SELECT * FROM groups WHERE id = ?', [id]);
+  const row = rows[0];
+  return row ? toDomain(row as unknown as GroupRow) : null;
+}
+
+// D-074: only returns a row when the group is flagged as a synthetic direct
+// conversation. Callers that want a direct group specifically MUST use this,
+// not `findGroupById`, so a regular group with a clashing id (impossible in
+// practice given the derived namespace but defended anyway) cannot be
+// mistaken for a DM.
+export function findDirectGroupById(
+  db: OffgridDb,
+  id: GroupId,
+): Group | null {
+  const { rows } = db.execute(
+    'SELECT * FROM groups WHERE id = ? AND is_direct = 1',
+    [id],
+  );
   const row = rows[0];
   return row ? toDomain(row as unknown as GroupRow) : null;
 }

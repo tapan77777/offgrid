@@ -4,6 +4,7 @@ import type {
   ConnectionSnapshot,
   GroupLocationBody,
   MessageEnvelope,
+  MsgTextBody,
   PeerHandle,
   TestPing,
   TransportState,
@@ -43,6 +44,14 @@ export type CommunicationEvent =
     }
   | {
       readonly kind: 'groupLocationEnvelopeReceived';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'chatEnvelopeSent';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'chatEnvelopeReceived';
       readonly envelope: MessageEnvelope;
     }
   | { readonly kind: 'payloadRejected'; readonly reason: string }
@@ -162,6 +171,32 @@ export class CommunicationManager {
     return envelope;
   }
 
+  // Chat V1 (D-074). Direct-only text send: hopCount=0, ttl=0,
+  // destinationDeviceId=null. Never routed through RelayRouter — see
+  // `RelayRouter.handlePayload` for the receiver-side guard against this
+  // envelope kind landing in the diagnostic group.
+  //
+  // Persistence is the sender service's responsibility: this method only
+  // encodes + writes bytes and emits an event so the caller can flip the
+  // outgoing row from LOCAL → SENT (CLAUDE.md §14/§20 honest states).
+  async sendChatTextEnvelope(body: MsgTextBody): Promise<MessageEnvelope> {
+    const envelope: MessageEnvelope = {
+      v: 1,
+      kind: 'msg.envelope',
+      id: body.payload.messageId,
+      originDeviceId: this.localDeviceId,
+      destinationDeviceId: null,
+      ttl: 0,
+      hopCount: 0,
+      sentAt: this.nowIso(),
+      body,
+    };
+    const bytes = encodeEnvelope(envelope);
+    await this.transport.sendPayload(bytes);
+    this.emit({ kind: 'chatEnvelopeSent', envelope });
+    return envelope;
+  }
+
   on(listener: CommunicationEventListener): () => void {
     this.listeners.add(listener);
     return () => {
@@ -218,6 +253,14 @@ export class CommunicationManager {
           if (envelope.body.kind === 'group.location') {
             this.emit({
               kind: 'groupLocationEnvelopeReceived',
+              envelope,
+            });
+          } else if (envelope.body.kind === 'msg.text') {
+            // Chat V1 (D-074). Surface the envelope so the chat receiver
+            // service can independently authorize + persist. This manager
+            // never inserts chat rows itself.
+            this.emit({
+              kind: 'chatEnvelopeReceived',
               envelope,
             });
           }

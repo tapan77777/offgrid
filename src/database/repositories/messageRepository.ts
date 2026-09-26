@@ -90,6 +90,52 @@ export function listMessagesForGroup(db: OffgridDb, groupId: GroupId): Message[]
   return (rows as unknown as MessageRow[]).map(toDomain);
 }
 
+// Chat V1 (D-074). Return the most recent `limit` rows for the conversation
+// in ASC order (oldest → newest). When `limit` is omitted, behaves the same
+// as `listMessagesForGroup`. We do NOT paginate deeper than `limit` in V1 —
+// the UI shows a fixed-size tail.
+export function listConversation(
+  db: OffgridDb,
+  groupId: GroupId,
+  limit?: number,
+): Message[] {
+  if (limit === undefined) {
+    return listMessagesForGroup(db, groupId);
+  }
+  // Take the last N rows in DESC, then flip to ASC for rendering.
+  const { rows } = db.execute(
+    'SELECT * FROM messages WHERE group_id = ? ORDER BY created_at DESC LIMIT ?',
+    [groupId, limit],
+  );
+  const messages = (rows as unknown as MessageRow[]).map(toDomain);
+  return messages.reverse();
+}
+
+// Chat V1 outbox. LOCAL rows are the ones the sender has persisted but not
+// yet handed to a live transport. The outbox scanner uses this to attempt a
+// resend when a manager comes online, and to age out stale rows to FAILED
+// after `CHAT_OUTBOX_LOCAL_TIMEOUT_MS`.
+export function listOutbox(db: OffgridDb): Message[] {
+  const { rows } = db.execute(
+    `SELECT * FROM messages
+     WHERE delivery_status = 'LOCAL'
+     ORDER BY created_at ASC`,
+  );
+  return (rows as unknown as MessageRow[]).map(toDomain);
+}
+
+export function updateDeliveryStatus(
+  db: OffgridDb,
+  id: MessageId,
+  status: MessageDeliveryStatus,
+): Message {
+  db.execute('UPDATE messages SET delivery_status = ? WHERE id = ?', [
+    status,
+    id,
+  ]);
+  return requireById(db, id);
+}
+
 function requireById(db: OffgridDb, id: MessageId): Message {
   const found = findMessageById(db, id);
   if (!found) {

@@ -11,7 +11,6 @@ import { SafetyActionButton } from '../components/SafetyActionButton';
 import { ListRow } from '../components/ListRow';
 import { StatusBadge } from '../components/StatusBadge';
 import { IconBadge } from '../components/IconBadge';
-import { ComingSoonNotice } from '../components/ComingSoonNotice';
 import { colors, radii, spacing, typography } from '../theme';
 import { useAppFoundationStore } from '../store/appFoundationStore';
 import { useGroupsStore } from '../store/groupsStore';
@@ -373,12 +372,13 @@ export function GroupScreen(): React.JSX.Element {
           <Card
             style={styles.tile}
             onPress={() => navigation.navigate('Chat', { groupId: detail.group.id })}
-            accessibilityLabel="Open chat preview"
+            accessibilityLabel="Open group chat"
+            testID="group-open-chat"
           >
             <IconBadge name="chat" tone="brand" />
             <View style={styles.tileText}>
               <Text style={typography.bodyStrong}>Chat</Text>
-              <Text style={typography.caption}>Preview</Text>
+              <Text style={typography.caption}>Group messages</Text>
             </View>
           </Card>
         </View>
@@ -472,13 +472,6 @@ export function GroupScreen(): React.JSX.Element {
             Safety actions activate once a connection is available.
           </Text>
         </View>
-      </View>
-
-      <View style={styles.section}>
-        <ComingSoonNotice
-          feature="Group chat"
-          detail="Messaging will unlock once the transport lifecycle is wired into the consumer app."
-        />
       </View>
 
       <View style={styles.section}>

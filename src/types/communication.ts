@@ -73,7 +73,24 @@ export interface GroupLocationBody {
   };
 }
 
-export type EnvelopeBody = TestPingBody | GroupLocationBody;
+// Chat V1 (D-074). Direct-only text message envelope: hopCount=0, ttl=0,
+// destinationDeviceId=null. Bodies are validated at the codec boundary
+// (all IDs UUIDv7, capped text, ISO instant). Persistence is the receiver
+// service's job, not the codec's or the CommunicationManager's.
+export const MAX_MSG_TEXT_UTF8_BYTES = 8192;
+
+export interface MsgTextBody {
+  readonly kind: 'msg.text';
+  readonly payload: {
+    readonly groupId: GroupId;
+    readonly senderUserId: UserId;
+    readonly messageId: MessageId;
+    readonly text: string;
+    readonly createdAt: string;
+  };
+}
+
+export type EnvelopeBody = TestPingBody | GroupLocationBody | MsgTextBody;
 
 export interface MessageEnvelope {
   readonly v: 1;
