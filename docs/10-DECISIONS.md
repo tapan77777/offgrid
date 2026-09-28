@@ -1847,3 +1847,340 @@ Rules the abstraction enforces:
 
 ---
 
+## D-075 — Group-Join Query/Invite Envelope Protocol (fixes local-only join code lookup)
+
+**Status:** ACCEPTED
+
+### Decision
+
+Group joining by code is a two-phase flow. The first phase is a local
+fast-path (existing `joinGroupByCode`). If it fails with
+`INVALID_JOIN_CODE`, the second phase broadcasts a nearby request over the
+existing CommunicationManager / Wi-Fi Direct transport and waits for a
+matching invite.
+
+Two new `MessageEnvelope` body kinds are introduced, both direct-only
+(`ttl=0`, `hopCount=0`) and never eligible for RelayRouter forwarding:
+
+- **`group.join.request`** — broadcast from the joiner. Payload:
+  `{code, joinerUserId, joinerDisplayName}`. `destinationDeviceId=null`.
+- **`group.join.invite`** — unicast reply to `originDeviceId` of a matching
+  request. Payload:
+  `{code, groupId, groupName, groupCreatedAt, joinerUserId, members[]}`.
+  `members[]` is an active-member snapshot at the responder's side, capped
+  at `MAX_JOIN_INVITE_MEMBERS = 50` (matches `GROUP_MEMBER_LIMIT`).
+
+Both envelopes are validated at the codec boundary (UUIDv7 ids, normalized
+code of exact length, name/display-name length caps, ISO instants).
+
+`RelayRouter.handlePayload` early-returns for both kinds — same guard
+pattern as `msg.text` in D-074. They are never written to the diagnostic
+group, never forwarded.
+
+Responder rules (`groupJoinResponder`):
+
+- Only groups where the local user is an **active member** of a non-direct
+  group are eligible to respond. A random stale row on a non-member device
+  cannot leak group metadata (CLAUDE.md §13).
+- On match, the responder first ensures a local `users` row exists for the
+  joiner (with the display name from the request), then delegates to
+  `joinGroupByCode` (which uses the existing `reactivateMembership` /
+  `MEMBER_LIMIT_REACHED` semantics). Only then does it unicast an invite.
+- Silent on failure — no rejection reason is sent to the requester. Stable
+  `[group-join-responder]` log prefix for diagnostics.
+
+Joiner rules (`groupJoinService.requestJoinByCode`):
+
+- Local fast-path first. Only if that returns `INVALID_JOIN_CODE` do we
+  fall through to the nearby request.
+- No manager registered → throws
+  `GroupsError('NO_CONNECTION', …)` so the UI can prompt the user to enable
+  connectivity (CLAUDE.md §20).
+- Timeout on invite (`DEFAULT_JOIN_TIMEOUT_MS = 8000`) → throws
+  `GroupsError('INVALID_JOIN_CODE', …)`. The user cannot tell "wrong code"
+  from "no nearby member hosts this code", and lying either way would be a
+  §14/§20 honesty violation.
+- On invite, install the group + every member in `members[]` idempotently
+  (INSERT-if-absent for both users and memberships; reactivate
+  previously-left rows). Ensure the joiner's local membership is present as
+  `member` and `active`.
+
+Runtime lifecycle (`groupJoinRuntime`) mirrors `chatRuntime` from D-074:
+subscribe to `commsRuntime`, attach the responder to whichever
+CommunicationManager is active. `bootstrapApp` calls
+`startGroupJoinRuntime` once at app start.
+
+`JoinGroupScreen` is unchanged visually; only the handler swaps from a
+synchronous local-DB lookup to `await requestJoinByCode(...)`. The polished
+UI, layout, testIDs, and error copy path stay intact.
+
+### Reason
+
+- **The V1 join UX must not be a hidden internet dependency in disguise.**
+  Before this change, B could enter a valid code that A had just generated
+  and get "No group matches the code" because the search was local-only.
+  That silently failed CLAUDE.md §Offline First and §Honest Connectivity.
+- **Reuse the existing transport.** Wi-Fi P2P is already proven in D-070's
+  physical test matrix; the RelayRouter's direct-only guard for `msg.text`
+  provides the exact pattern needed here.
+- **Codes are not secrets.** `joinCode.ts` §8 and `docs/05-SECURITY.md` §8
+  already document that the code is a typeable convenience token — the
+  privacy check is "am I an active member of this group?", not code entropy.
+  The responder rule enforces this correctly.
+- **Silent responder failures.** Never tell the requester "you asked me,
+  but I said no." An adversarial device could probe for group ownership;
+  privacy §13 forbids leaking membership.
+- **8-second timeout.** Chosen empirically from Phase 3's A↔B pairing
+  latency (~2–4s cold, faster warm). Doubling that gives headroom for the
+  responder's DB writes + reply frame without frustrating the user.
+
+### Alternatives considered
+
+- **Extend `msg.text` with a "join" flavor** — rejected: overloads chat
+  routing, mixes privacy tiers, and violates the direct-only chat contract.
+- **Multi-hop via RelayRouter** — rejected for V1: relay's diagnostic-group
+  persistence path is wrong for join, and the acceptance test only requires
+  A and the joiner to be in physical proximity (matches the product
+  narrative "ask the admin for the code, be near them").
+- **QR code first / instead** — deferred (ComingSoonNotice already visible
+  on the screen). Same envelope protocol will back the QR flow: scanning
+  the QR bypasses only the code-typing step, not the request/invite pair.
+- **Cryptographic join tokens** — Phase 10 concern (05-SECURITY.md §Real
+  cryptographic invitations). Would replace the raw `code` field with a
+  signed capability without touching the envelope routing.
+
+### Consequence
+
+- New types: `GroupJoinRequestBody`, `GroupJoinInviteBody`,
+  `GroupJoinInviteMember` in `src/types/communication.ts`; envelope body
+  union extended.
+- New codec validators in `src/services/communication/codec.ts`.
+- `CommunicationManager` gains `sendGroupJoinRequestEnvelope`,
+  `sendGroupJoinInviteEnvelope`, and four new events
+  (`groupJoinRequestEnvelopeSent/Received`,
+  `groupJoinInviteEnvelopeSent/Received`).
+- `RelayRouter.handlePayload` gains an early-return guard for both new
+  kinds.
+- New files: `src/services/groups/groupJoinResponder.ts`,
+  `src/services/groups/groupJoinService.ts`,
+  `src/services/groups/groupJoinRuntime.ts`.
+- `src/services/appBootstrap.ts` calls `startGroupJoinRuntime` after
+  `startChatRuntime`.
+- `src/services/groups/errors.ts` gains `NO_CONNECTION`.
+- `src/screens/JoinGroupScreen.tsx` handler now async; **layout unchanged**.
+- Tests: `__tests__/services/groups/groupJoinService.test.ts` (3-node mock
+  triangle) + codec round-trip coverage in
+  `__tests__/communication/groupJoinCodec.test.ts`. Physical 3-phone run
+  remains untested — deferred to the same test matrix that covered D-070.
+- Cross-references: D-014 (dedupe), D-058 (private groups), D-062 (Wi-Fi
+  P2P V0), D-069 (relay handoff), D-074 (chat V1 direct-only pattern),
+  05-SECURITY.md §8 (join code is not a secret).
+
+---
+
+## D-076 — Consumer 1-to-1 Chat Request Handshake (privacy-first Nearby flow)
+
+**Status:** ACCEPTED
+
+### Decision
+
+Introduce a consumer-friendly 1-to-1 chat flow anchored on a Home → Nearby
+screen and a three-envelope handshake. Users tap a nearby device, the
+recipient sees an incoming chat request with the requester's display name,
+and after Accept the direct-conversation group (D-074) opens on both sides.
+
+Three new `MessageEnvelope` body kinds are introduced, all direct-only
+(`ttl=0`, `hopCount=0`) and never eligible for RelayRouter forwarding:
+
+- **`chat.request`** — broadcast from the requester. Payload:
+  `{requestId, fromUserId, fromDisplayName, toUserId}`.
+  `destinationDeviceId=null`. `toUserId` is **nullable**: `null` means
+  "for whoever receives this directly over the Wi-Fi Direct link that has
+  already formed" — used by the Nearby flow where Alice has not yet learned
+  Bob's OFFGRID userId. A concrete UUIDv7 preserves the strict-addressing
+  semantic for future flows where identity was previously exchanged.
+- **`chat.request.accept`** — unicast reply to the requester's
+  `originDeviceId`. Payload:
+  `{requestId, accepterUserId, accepterDisplayName, requesterUserId}`.
+  Carries the accepter's identity so the requester can create the local
+  `users` row and open the direct chat even when they never persisted an
+  outgoing `chat_requests` row (Nearby toUserId=null case).
+- **`chat.request.decline`** — unicast reply to the requester's
+  `originDeviceId`. Payload:
+  `{requestId, declinerUserId, requesterUserId}`. Best-effort — if the wire
+  send fails, the local decline still stands and the requester's row stays
+  `pending` (honest CLAUDE.md §20 outcome).
+
+Validation at the codec boundary (all IDs UUIDv7, self-loop rejected on
+`chat.request` when `toUserId` is non-null, self-loop rejected on
+`chat.request.accept` / `chat.request.decline`, display names trimmed and
+capped at `MAX_CHAT_REQUEST_DISPLAY_NAME_LENGTH = 64`).
+
+`RelayRouter.handlePayload` early-returns for all three kinds — same guard
+pattern as `msg.text` in D-074 and the join envelopes in D-075. They are
+never written to the diagnostic group, never forwarded.
+
+New table `chat_requests` (migration `0006_chat_requests`) — one row per
+handshake, `id` equals the wire `requestId` so both peers converge on the
+same row without a token. `direction` is `'incoming'`/`'outgoing'` (from the
+local perspective), `status` is `'pending'/'accepted'/'declined'/'cancelled'`.
+Partial unique index enforces "at most one pending row per ordered pair".
+
+Responder rules (`chatRequestResponder`):
+
+- Subscribes to `chatRequestEnvelopeReceived`,
+  `chatRequestAcceptEnvelopeReceived`, `chatRequestDeclineEnvelopeReceived`
+  on the active manager (via `chatRequestRuntime` singleton, same pattern
+  as `chatRuntime` / `groupJoinRuntime`).
+- On `chat.request`: silently ignore if `payload.toUserId` is non-null and
+  does not match the local user; also ignore self-loopback. Ensure the
+  requester's `users` row exists (from the payload's `fromDisplayName`) and
+  insert a pending incoming `chat_requests` row. Idempotent on duplicate
+  `requestId`. If a different pending row for this ordered pair already
+  exists, do nothing (partial unique index would reject it anyway).
+- On `chat.request.accept`: ensure the accepter's `users` row exists FIRST
+  (even when no outgoing row is present locally — Nearby toUserId=null
+  case requires this). Then, only if a pending outgoing row for the same
+  requestId exists on this device, flip it to `accepted`.
+- On `chat.request.decline`: same shape, flips to `declined` if a matching
+  pending outgoing row exists.
+- All handlers wrap in `try/catch` and log via
+  `[chat-request-responder] …` prefix; never leak reasons over the wire.
+
+Service rules (`chatRequestService`):
+
+- `sendChatRequest` — persists an outgoing row locally FIRST when
+  `toUserId` is known (deduping against a prior pending row for the same
+  ordered pair); when `toUserId` is null, no outgoing row is persisted and
+  the caller's UI (`nearbyStore`) holds ephemeral state until the accept
+  envelope returns. Then broadcasts the `chat.request` envelope. Throws
+  `NO_CONNECTION` if no manager is registered.
+- `acceptChatRequest` — creates the direct group via
+  `ensureDirectConversation` (D-074), flips the local row to `accepted`,
+  then unicasts the accept envelope to the requester's `originDeviceId`.
+  If the transport is unavailable, the local state stands and the caller
+  gets `NO_CONNECTION` so the UI can show an honest error.
+- `declineChatRequest` — flips the row and best-effort unicasts a decline
+  envelope. Silent on transport failure — the local state is authoritative.
+- `cancelOutgoingChatRequest` — synchronous, no wire notification. Used
+  when the requester backs out.
+
+UI (`NearbyScreen` + `nearbyStore` + Home CTA):
+
+- Auto-starts Wi-Fi Direct discovery when the screen focuses; shows a
+  spinner and a "Stop searching" affordance. No exposure of Wi-Fi Direct,
+  MAC, device-id, TCP, or diagnostics vocabulary — nearby peers show as
+  "Nearby OFFGRID device · XXXX" where the 4-char FNV-1a suffix of the
+  peer session key is a deterministic disambiguator (not identity).
+- Identity/display name is revealed **only** through `chat.request`. No
+  separate `presence.announce` broadcast (see Alternatives).
+- Recipient sees an incoming request card with `Accept` / `Decline`.
+  Location is not exposed just because a peer is nearby (CLAUDE.md §15).
+- On `accepted`, the screen navigates straight into the direct `Chat`
+  (D-074 direct group is already created on both sides).
+
+### Reason
+
+- **Consumer-friendly on-ramp.** The V0 UX before this change assumed the
+  user knew how to reach the Diagnostics screen and understood
+  "peer connected / TCP 8988 / group owner elected". The 1-to-1 chat flow
+  is the shortest honest demonstration of "stay connected when the network
+  disappears" for a non-technical user.
+- **Privacy-first defaults.** CLAUDE.md §13 forbids leaking group
+  membership, messages, locations, or safety events to unauthorised
+  devices. Broadcasting a `presence.announce` would leak identity/display
+  name to anyone within Wi-Fi Direct range regardless of the user's intent.
+  Instead, identity is only exchanged as part of an explicit `chat.request`
+  the requester chose to send.
+- **`toUserId` nullable is the smallest change consistent with the
+  transport reality.** Wi-Fi Direct peer discovery surfaces device
+  metadata (MAC, device name) — not OFFGRID `userId`. Requiring a
+  concrete `toUserId` at request time would force either a manual userId
+  entry (bad UX) or a post-connection identity exchange (a de-facto
+  `presence.announce`, rejected above). Null means "for whoever receives
+  this directly over the WFD link that has already formed" — the framing
+  layer already restricted delivery to a currently-connected peer, so the
+  scope is unchanged.
+- **Reuse over invention.** Chat V1 (D-074), Wi-Fi P2P V0 (D-062), the
+  CommunicationManager event pattern (D-063), the runtime singleton
+  pattern (`chatRuntime`, `groupJoinRuntime`), the RelayRouter direct-only
+  guard (D-069), and the join-envelope validator style (D-075) all
+  transfer directly.
+- **Honest states end-to-end.** The `chat_requests.status` enum encodes
+  the entire lifecycle. `sendChatRequest` returns `null` for `request`
+  when there is no persisted row (Nearby null path) — the UI must not
+  claim otherwise. `declineChatRequest` with `requesterOriginDeviceId=null`
+  leaves the requester's row `pending` (§20).
+
+### Alternatives considered
+
+- **`presence.announce` broadcast** — rejected. Would advertise
+  identity/display name to every Wi-Fi Direct peer within range without
+  explicit user consent. Violates CLAUDE.md §13 (private by default). The
+  nullable-`toUserId` `chat.request` is strictly less leaky: identity is
+  only revealed to the exact peer the user tapped.
+- **Manual userId entry** — rejected. Consumer UX cannot ask users to
+  type UUIDv7s. Also breaks the "no networking internals in the UI"
+  principle (CLAUDE.md §Simple UX).
+- **Multi-hop chat request over RelayRouter** — rejected for V1. Would
+  require an addressed unicast delivery model the transport does not yet
+  provide, and would expose identity to intermediate hops. Direct-only
+  matches the D-074 chat contract.
+- **Overload `group.join.request` with a "1-to-1" flavor** — rejected.
+  Mixes privacy tiers (group membership vs. 1-to-1 identity) and
+  conflates two independent lifecycles. Separate envelope kinds keep the
+  responders single-purpose.
+- **QR-code identity exchange as a prerequisite** — deferred. When it
+  lands, the QR flow will hand the requester a concrete `toUserId` and
+  the same `chat.request` envelope will carry it — no protocol change
+  needed.
+- **Cryptographic chat capabilities** — Phase 10 concern
+  (`05-SECURITY.md`). Would replace `toUserId`/`fromUserId` with signed
+  identity attestations without touching envelope routing.
+
+### Consequence
+
+- New types: `ChatRequestBody`, `ChatRequestAcceptBody`,
+  `ChatRequestDeclineBody`, and `MAX_CHAT_REQUEST_DISPLAY_NAME_LENGTH` in
+  `src/types/communication.ts`; envelope body union extended. Note:
+  `ChatRequestBody.payload.toUserId` is `UserId | null` — see
+  `src/services/communication/codec.ts` for the validator.
+- New codec validators in `src/services/communication/codec.ts` — with
+  the toUserId=null branch documented inline.
+- `CommunicationManager` gains `sendChatRequestEnvelope`,
+  `sendChatRequestAcceptEnvelope`, `sendChatRequestDeclineEnvelope`, and
+  six new events (`chatRequestEnvelopeSent/Received`,
+  `chatRequestAcceptEnvelopeSent/Received`,
+  `chatRequestDeclineEnvelopeSent/Received`).
+- `RelayRouter.handlePayload` gains an early-return guard for all three
+  chat-request kinds.
+- New migration `0006_chat_requests` + `ChatRequestRepo`
+  (`src/database/repositories/chatRequestRepository.ts`).
+- New entity types `ChatRequest`, `ChatRequestDirection`,
+  `ChatRequestStatus` in `src/types/entities.ts`.
+- New files: `src/services/chat/chatRequestResponder.ts`,
+  `src/services/chat/chatRequestService.ts`,
+  `src/services/chat/chatRequestRuntime.ts`.
+- `src/services/appBootstrap.ts` calls `startChatRequestRuntime` alongside
+  `startChatRuntime` / `startGroupJoinRuntime`.
+- New store `src/store/nearbyStore.ts` (Zustand) with consumer vocabulary
+  only and a deterministic `nearbyPeerLabel()` FNV-1a-based short suffix.
+- New screen `src/screens/NearbyScreen.tsx` — auto-starts discovery on
+  focus, spinner, `Stop searching`, incoming request Accept/Decline,
+  navigates to `Chat` on `accepted`.
+- `RootStack` route `Nearby` added; `HomeScreen` gains a "Chat with
+  someone nearby" CTA above "Your groups".
+- Tests: `__tests__/communication/chatRequestCodec.test.ts` (round-trip +
+  null toUserId + self-loop + display-name cap) and
+  `__tests__/services/chat/chatRequestService.test.ts` (2-node
+  MockTransport pair covering send/accept/decline/cancel/duplicate/
+  self-loopback and the toUserId=null Nearby path). Physical 3-phone run
+  is a follow-up on the D-070 matrix.
+- Cross-references: D-014 (dedupe), D-058 (private groups), D-062 (Wi-Fi
+  P2P V0), D-063 (CommunicationManager pattern), D-069 (relay handoff /
+  direct-only guard), D-074 (chat V1, direct group derivation), D-075
+  (join envelope pattern), CLAUDE.md §13 (privacy), §15 (location),
+  §20 (honest UI), §Simple UX.
+
+---
+

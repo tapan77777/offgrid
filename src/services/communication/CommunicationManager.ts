@@ -1,7 +1,12 @@
 import type { OffgridDb } from '../../database';
 import { MessageRepo } from '../../database/repositories';
 import type {
+  ChatRequestAcceptBody,
+  ChatRequestBody,
+  ChatRequestDeclineBody,
   ConnectionSnapshot,
+  GroupJoinInviteBody,
+  GroupJoinRequestBody,
   GroupLocationBody,
   MessageEnvelope,
   MsgTextBody,
@@ -52,6 +57,46 @@ export type CommunicationEvent =
     }
   | {
       readonly kind: 'chatEnvelopeReceived';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'groupJoinRequestEnvelopeSent';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'groupJoinRequestEnvelopeReceived';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'groupJoinInviteEnvelopeSent';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'groupJoinInviteEnvelopeReceived';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'chatRequestEnvelopeSent';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'chatRequestEnvelopeReceived';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'chatRequestAcceptEnvelopeSent';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'chatRequestAcceptEnvelopeReceived';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'chatRequestDeclineEnvelopeSent';
+      readonly envelope: MessageEnvelope;
+    }
+  | {
+      readonly kind: 'chatRequestDeclineEnvelopeReceived';
       readonly envelope: MessageEnvelope;
     }
   | { readonly kind: 'payloadRejected'; readonly reason: string }
@@ -197,6 +242,117 @@ export class CommunicationManager {
     return envelope;
   }
 
+  // Group join V1 (D-075). B broadcasts a request; any nearby device that
+  // owns a matching group replies with an invite. Direct-only: ttl=0,
+  // hopCount=0. RelayRouter.handlePayload guards against these kinds landing
+  // in the diagnostic group or being forwarded.
+  async sendGroupJoinRequestEnvelope(
+    body: GroupJoinRequestBody,
+  ): Promise<MessageEnvelope> {
+    const envelope: MessageEnvelope = {
+      v: 1,
+      kind: 'msg.envelope',
+      id: this.generateId() as MessageId,
+      originDeviceId: this.localDeviceId,
+      destinationDeviceId: null,
+      ttl: 0,
+      hopCount: 0,
+      sentAt: this.nowIso(),
+      body,
+    };
+    const bytes = encodeEnvelope(envelope);
+    await this.transport.sendPayload(bytes);
+    this.emit({ kind: 'groupJoinRequestEnvelopeSent', envelope });
+    return envelope;
+  }
+
+  async sendGroupJoinInviteEnvelope(
+    body: GroupJoinInviteBody,
+    destinationDeviceId: DeviceId,
+  ): Promise<MessageEnvelope> {
+    const envelope: MessageEnvelope = {
+      v: 1,
+      kind: 'msg.envelope',
+      id: this.generateId() as MessageId,
+      originDeviceId: this.localDeviceId,
+      destinationDeviceId,
+      ttl: 0,
+      hopCount: 0,
+      sentAt: this.nowIso(),
+      body,
+    };
+    const bytes = encodeEnvelope(envelope);
+    await this.transport.sendPayload(bytes);
+    this.emit({ kind: 'groupJoinInviteEnvelopeSent', envelope });
+    return envelope;
+  }
+
+  // Chat request V1 (D-076). Broadcast so any nearby device can see it and
+  // decide whether it is for them. Identity travels in the payload — a
+  // recipient learns the requester's display name only when the request
+  // itself arrives. Direct-only: ttl=0, hopCount=0.
+  async sendChatRequestEnvelope(
+    body: ChatRequestBody,
+  ): Promise<MessageEnvelope> {
+    const envelope: MessageEnvelope = {
+      v: 1,
+      kind: 'msg.envelope',
+      id: this.generateId() as MessageId,
+      originDeviceId: this.localDeviceId,
+      destinationDeviceId: null,
+      ttl: 0,
+      hopCount: 0,
+      sentAt: this.nowIso(),
+      body,
+    };
+    const bytes = encodeEnvelope(envelope);
+    await this.transport.sendPayload(bytes);
+    this.emit({ kind: 'chatRequestEnvelopeSent', envelope });
+    return envelope;
+  }
+
+  async sendChatRequestAcceptEnvelope(
+    body: ChatRequestAcceptBody,
+    destinationDeviceId: DeviceId,
+  ): Promise<MessageEnvelope> {
+    const envelope: MessageEnvelope = {
+      v: 1,
+      kind: 'msg.envelope',
+      id: this.generateId() as MessageId,
+      originDeviceId: this.localDeviceId,
+      destinationDeviceId,
+      ttl: 0,
+      hopCount: 0,
+      sentAt: this.nowIso(),
+      body,
+    };
+    const bytes = encodeEnvelope(envelope);
+    await this.transport.sendPayload(bytes);
+    this.emit({ kind: 'chatRequestAcceptEnvelopeSent', envelope });
+    return envelope;
+  }
+
+  async sendChatRequestDeclineEnvelope(
+    body: ChatRequestDeclineBody,
+    destinationDeviceId: DeviceId,
+  ): Promise<MessageEnvelope> {
+    const envelope: MessageEnvelope = {
+      v: 1,
+      kind: 'msg.envelope',
+      id: this.generateId() as MessageId,
+      originDeviceId: this.localDeviceId,
+      destinationDeviceId,
+      ttl: 0,
+      hopCount: 0,
+      sentAt: this.nowIso(),
+      body,
+    };
+    const bytes = encodeEnvelope(envelope);
+    await this.transport.sendPayload(bytes);
+    this.emit({ kind: 'chatRequestDeclineEnvelopeSent', envelope });
+    return envelope;
+  }
+
   on(listener: CommunicationEventListener): () => void {
     this.listeners.add(listener);
     return () => {
@@ -261,6 +417,44 @@ export class CommunicationManager {
             // never inserts chat rows itself.
             this.emit({
               kind: 'chatEnvelopeReceived',
+              envelope,
+            });
+          } else if (envelope.body.kind === 'group.join.request') {
+            // Group join V1 (D-075). Surface the request so the responder
+            // service can decide whether this device hosts a matching group.
+            // Direct-addressed replies (invites) are dispatched on the same
+            // manager via sendGroupJoinInviteEnvelope.
+            this.emit({
+              kind: 'groupJoinRequestEnvelopeReceived',
+              envelope,
+            });
+          } else if (envelope.body.kind === 'group.join.invite') {
+            // Group join V1 (D-075). Surface the invite so the join service
+            // can install the group + members locally. The receiver checks
+            // the invite is addressed to us before acting.
+            this.emit({
+              kind: 'groupJoinInviteEnvelopeReceived',
+              envelope,
+            });
+          } else if (envelope.body.kind === 'chat.request') {
+            // Chat request V1 (D-076). Surface so the chatRequest responder
+            // can decide whether the request is addressed to us and, if so,
+            // persist a pending row + notify the UI. Broadcast — the
+            // responder filters on payload.toUserId.
+            this.emit({
+              kind: 'chatRequestEnvelopeReceived',
+              envelope,
+            });
+          } else if (envelope.body.kind === 'chat.request.accept') {
+            // Chat request V1 (D-076). Surface so the requester can react —
+            // mark the outgoing request accepted and open the direct chat.
+            this.emit({
+              kind: 'chatRequestAcceptEnvelopeReceived',
+              envelope,
+            });
+          } else if (envelope.body.kind === 'chat.request.decline') {
+            this.emit({
+              kind: 'chatRequestDeclineEnvelopeReceived',
               envelope,
             });
           }

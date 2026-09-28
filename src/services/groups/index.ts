@@ -27,3 +27,19 @@ export type {
   RemoveMemberInput,
   RenameGroupInput,
 } from './groupsService';
+export {
+  DEFAULT_JOIN_TIMEOUT_MS,
+  findLocalGroupByCode,
+  requestJoinByCode,
+} from './groupJoinService';
+export type {
+  RequestJoinByCodeOptions,
+  RequestJoinByCodeResult,
+} from './groupJoinService';
+export { startGroupJoinResponder } from './groupJoinResponder';
+export type { StartGroupJoinResponderOptions } from './groupJoinResponder';
+export {
+  _resetGroupJoinRuntimeForTests,
+  startGroupJoinRuntime,
+} from './groupJoinRuntime';
+export type { StartGroupJoinRuntimeOptions } from './groupJoinRuntime';

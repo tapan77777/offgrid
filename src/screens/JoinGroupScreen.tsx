@@ -13,9 +13,11 @@ import { bootstrapApp } from '../services/appBootstrap';
 import {
   GroupsError,
   JOIN_CODE_LENGTH,
-  joinGroupByCode,
   normalizeJoinCode,
+  requestJoinByCode,
 } from '../services/groups';
+import { UserRepo } from '../database/repositories';
+import { getActiveCommunicationManager } from '../services/communication/commsRuntime';
 import type { RootStackParamList } from '../navigation/RootStack';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -31,7 +33,7 @@ export function JoinGroupScreen(): React.JSX.Element {
   const normalized = useMemo(() => normalizeJoinCode(rawCode), [rawCode]);
   const codeValid = normalized.length === JOIN_CODE_LENGTH;
 
-  const handleJoin = useCallback(() => {
+  const handleJoin = useCallback(async () => {
     if (!localUserId || !codeValid || busy) {
       return;
     }
@@ -39,9 +41,15 @@ export function JoinGroupScreen(): React.JSX.Element {
     setErrorMessage(null);
     try {
       const { db } = bootstrapApp();
-      const { group } = joinGroupByCode(db, {
+      const localUser = UserRepo.findUserById(db, localUserId);
+      const displayName = localUser?.displayName ?? 'OFFGRID user';
+      const manager = getActiveCommunicationManager();
+      const { group } = await requestJoinByCode({
+        db,
+        manager,
         code: normalized,
-        userId: localUserId,
+        joinerUserId: localUserId,
+        joinerDisplayName: displayName,
       });
       refreshGroups(db, localUserId);
       navigation.replace('Group', { groupId: group.id });
@@ -100,7 +108,7 @@ export function JoinGroupScreen(): React.JSX.Element {
             testID="join-group-cancel"
           />
           <Button
-            label={busy ? 'Joining…' : 'Join'}
+            label={busy ? 'Looking for nearby group…' : 'Join'}
             onPress={handleJoin}
             disabled={!codeValid || busy || !localUserId}
             testID="join-group-submit"

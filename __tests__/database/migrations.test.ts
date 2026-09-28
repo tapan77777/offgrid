@@ -25,6 +25,10 @@ describe('runMigrations', () => {
         version: 5,
         name: '0005_direct_conversations',
       }),
+      expect.objectContaining({
+        version: 6,
+        name: '0006_chat_requests',
+      }),
     ]);
     db.close();
   });
@@ -33,7 +37,7 @@ describe('runMigrations', () => {
     const db = createInMemoryDb();
     const report = runMigrations(db);
     expect(report.appliedVersions).toEqual([]);
-    expect(report.currentVersion).toBe(5);
+    expect(report.currentVersion).toBe(6);
     db.close();
   });
 
@@ -45,6 +49,7 @@ describe('runMigrations', () => {
     const names = rows.map(r => r.name);
     expect(names).toEqual(
       [
+        'chat_requests',
         'devices',
         'group_location_sharing',
         'group_members',

@@ -6,6 +6,7 @@ import * as GroupLocationSharingRepo from './groupLocationSharingRepository';
 import * as LocationRepo from './locationRepository';
 import * as MessageRepo from './messageRepository';
 import * as SettingsRepo from './settingsRepository';
+import * as ChatRequestRepo from './chatRequestRepository';
 
 export {
   UserRepo,
@@ -16,4 +17,5 @@ export {
   LocationRepo,
   MessageRepo,
   SettingsRepo,
+  ChatRequestRepo,
 };

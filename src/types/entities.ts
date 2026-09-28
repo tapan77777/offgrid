@@ -137,3 +137,23 @@ export interface GroupLocationSharing {
   createdAt: string;
   updatedAt: string;
 }
+
+// D-076. Consumer-friendly 1-to-1 chat request handshake state.
+export type ChatRequestDirection = 'incoming' | 'outgoing';
+export type ChatRequestStatus =
+  | 'pending'
+  | 'accepted'
+  | 'declined'
+  | 'cancelled';
+
+export interface ChatRequest {
+  id: MessageId;
+  requesterUserId: UserId;
+  recipientUserId: UserId;
+  requesterDisplayName: string;
+  direction: ChatRequestDirection;
+  status: ChatRequestStatus;
+  createdAt: string;
+  resolvedAt: string | null;
+  updatedAt: string;
+}

@@ -200,6 +200,25 @@ export class RelayRouter {
     if (envelope.body.kind === 'msg.text') {
       return;
     }
+    // Group join V1 (D-075). Same rationale as msg.text — the join
+    // request/invite envelopes belong to the groupJoinRuntime pipeline.
+    // Direct-only; never persisted in the diagnostic group; never forwarded.
+    if (
+      envelope.body.kind === 'group.join.request' ||
+      envelope.body.kind === 'group.join.invite'
+    ) {
+      return;
+    }
+    // Chat request V1 (D-076). Same rationale — belongs to the
+    // chatRequestRuntime pipeline. Direct-only handshake; never persisted
+    // in the diagnostic group and never forwarded.
+    if (
+      envelope.body.kind === 'chat.request' ||
+      envelope.body.kind === 'chat.request.accept' ||
+      envelope.body.kind === 'chat.request.decline'
+    ) {
+      return;
+    }
     const existing = MessageRepo.findMessageById(this.db, envelope.id);
     if (existing !== null) {
       this.emit({

@@ -55,6 +55,32 @@ export function HomeScreen(): React.JSX.Element {
       </View>
 
       <View style={styles.section}>
+        <SectionHeader title="Nearby" />
+        <Card testID="home-nearby-cta">
+          <View style={styles.emptyHeader}>
+            <IconBadge name="radio" tone="brand" />
+            <View style={styles.emptyTextBlock}>
+              <Text style={typography.bodyStrong}>
+                Chat with someone nearby
+              </Text>
+              <Text style={typography.bodySecondary}>
+                Find other OFFGRID users around you and start a private
+                1-to-1 chat — no Internet needed.
+              </Text>
+            </View>
+          </View>
+          <View style={styles.buttonRow}>
+            <Button
+              label="Find nearby people"
+              onPress={() => navigation.navigate('Nearby')}
+              leadingIcon="radio"
+              testID="home-nearby-open"
+            />
+          </View>
+        </Card>
+      </View>
+
+      <View style={styles.section}>
         <SectionHeader title="Your groups" />
         <Card testID="home-groups-empty">
           <View style={styles.emptyHeader}>

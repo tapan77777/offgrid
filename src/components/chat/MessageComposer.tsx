@@ -83,7 +83,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
-    color: colors.textPrimary,
     ...typography.body,
   },
   send: {

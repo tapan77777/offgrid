@@ -8,7 +8,8 @@ import { runMigrations } from '../database';
 import { applyStartupPragmas, createOpSqliteDb } from '../database/sqlite';
 import { ensureLocalDevice, ensureLocalUser } from './identity';
 import { ensureDiagnosticGroup, isDiagnosticsEnabled } from './communication';
-import { startChatRuntime } from './chat';
+import { startChatRequestRuntime, startChatRuntime } from './chat';
+import { startGroupJoinRuntime } from './groups';
 import { bootstrapMapProvider } from '../config/mapProviderBootstrap';
 import type { DevicePlatform } from '../types/entities';
 import type { DeviceId, UserId } from '../types/ids';
@@ -48,6 +49,15 @@ export function bootstrapApp(): AppBootstrapResult {
   // the outbox tick when a CommunicationManager becomes active and detaches
   // when it goes away. Safe to call on every bootstrap; the first call wins.
   startChatRuntime({ db, localUserId: user.userId });
+  // Group join V1 (D-075). Attaches the responder that answers nearby
+  // `group.join.request` envelopes with an invite for any group the local
+  // user hosts. Same idempotent lifecycle pattern as chatRuntime.
+  startGroupJoinRuntime({ db, localUserId: user.userId });
+  // Chat request V1 (D-076). Attaches the responder that persists incoming
+  // chat.request envelopes addressed to the local user, plus incoming
+  // accept/decline replies for our outgoing requests. Same idempotent
+  // lifecycle pattern as chatRuntime.
+  startChatRequestRuntime({ db, localUserId: user.userId });
   const map = bootstrapMapProvider();
   cached = {
     db,

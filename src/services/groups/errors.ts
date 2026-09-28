@@ -10,7 +10,11 @@ export type GroupsErrorCode =
   | 'MEMBER_LIMIT_REACHED'
   | 'NOT_ADMIN'
   | 'CANNOT_REMOVE_SELF'
-  | 'LAST_ADMIN_WITH_MEMBERS';
+  | 'LAST_ADMIN_WITH_MEMBERS'
+  // D-075: emitted by the join service when the local device has no active
+  // CommunicationManager to broadcast a nearby request. Distinct from
+  // INVALID_JOIN_CODE so the UI can prompt the user to enable comms first.
+  | 'NO_CONNECTION';
 
 export class GroupsError extends Error {
   readonly code: GroupsErrorCode;

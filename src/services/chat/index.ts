@@ -28,3 +28,28 @@ export {
   _resetChatRuntimeForTests,
 } from './chatRuntime';
 export type { StartChatRuntimeOptions } from './chatRuntime';
+
+// D-076. Consumer-friendly 1-to-1 chat request handshake.
+export {
+  ChatRequestError,
+  sendChatRequest,
+  acceptChatRequest,
+  declineChatRequest,
+  cancelOutgoingChatRequest,
+} from './chatRequestService';
+export type {
+  ChatRequestErrorCode,
+  SendChatRequestOptions,
+  SendChatRequestResult,
+  AcceptChatRequestOptions,
+  AcceptChatRequestResult,
+  DeclineChatRequestOptions,
+  DeclineChatRequestResult,
+} from './chatRequestService';
+export { startChatRequestResponder } from './chatRequestResponder';
+export type { StartChatRequestResponderOptions } from './chatRequestResponder';
+export {
+  startChatRequestRuntime,
+  _resetChatRequestRuntimeForTests,
+} from './chatRequestRuntime';
+export type { StartChatRequestRuntimeOptions } from './chatRequestRuntime';

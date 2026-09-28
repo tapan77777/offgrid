@@ -12,6 +12,7 @@ import { DiagnosticsScreen } from '../screens/DiagnosticsScreen';
 import { LocationDiagnosticsScreen } from '../screens/LocationDiagnosticsScreen';
 import { CreateGroupScreen } from '../screens/CreateGroupScreen';
 import { JoinGroupScreen } from '../screens/JoinGroupScreen';
+import { NearbyScreen } from '../screens/NearbyScreen';
 import { colors, typography } from '../theme';
 
 export type RootStackParamList = {
@@ -23,6 +24,7 @@ export type RootStackParamList = {
   Members: { groupId: string };
   CreateGroup: undefined;
   JoinGroup: undefined;
+  Nearby: undefined;
   Settings: undefined;
   Advanced: undefined;
   Diagnostics: undefined;
@@ -86,6 +88,11 @@ export function RootStack(): React.JSX.Element {
         name="JoinGroup"
         component={JoinGroupScreen}
         options={{ title: 'Join a group' }}
+      />
+      <Stack.Screen
+        name="Nearby"
+        component={NearbyScreen}
+        options={{ title: 'Nearby' }}
       />
       <Stack.Screen
         name="Settings"

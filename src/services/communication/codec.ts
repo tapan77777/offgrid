@@ -1,5 +1,11 @@
 import type {
+  ChatRequestAcceptBody,
+  ChatRequestBody,
+  ChatRequestDeclineBody,
   EnvelopeBody,
+  GroupJoinInviteBody,
+  GroupJoinInviteMember,
+  GroupJoinRequestBody,
   GroupLocationBody,
   MessageEnvelope,
   MsgTextBody,
@@ -7,10 +13,16 @@ import type {
   TestPingBody,
 } from '../../types/communication';
 import {
+  MAX_CHAT_REQUEST_DISPLAY_NAME_LENGTH,
   MAX_ENVELOPE_HOP_COUNT,
   MAX_ENVELOPE_TTL,
+  MAX_JOIN_DISPLAY_NAME_LENGTH,
+  MAX_JOIN_GROUP_NAME_LENGTH,
+  MAX_JOIN_INVITE_MEMBERS,
   MAX_MSG_TEXT_UTF8_BYTES,
 } from '../../types/communication';
+import { JOIN_CODE_LENGTH } from '../groups/constants';
+import { normalizeJoinCode } from '../groups/joinCode';
 import type {
   DeviceId,
   GroupId,
@@ -271,7 +283,253 @@ function validateEnvelopeBody(value: unknown): EnvelopeBody | null {
   if (value.kind === 'msg.text') {
     return validateMsgTextBody(value);
   }
+  if (value.kind === 'group.join.request') {
+    return validateGroupJoinRequestBody(value);
+  }
+  if (value.kind === 'group.join.invite') {
+    return validateGroupJoinInviteBody(value);
+  }
+  if (value.kind === 'chat.request') {
+    return validateChatRequestBody(value);
+  }
+  if (value.kind === 'chat.request.accept') {
+    return validateChatRequestAcceptBody(value);
+  }
+  if (value.kind === 'chat.request.decline') {
+    return validateChatRequestDeclineBody(value);
+  }
   return null;
+}
+
+function validateChatRequestBody(
+  value: Record<string, unknown>,
+): ChatRequestBody | null {
+  const payload = value.payload;
+  if (!isRecord(payload)) return null;
+  if (typeof payload.requestId !== 'string' || !isUuidV7(payload.requestId)) {
+    return null;
+  }
+  if (typeof payload.fromUserId !== 'string' || !isUuidV7(payload.fromUserId)) {
+    return null;
+  }
+  // toUserId is nullable — see docs/10-DECISIONS.md D-076.
+  let toUserId: UserId | null;
+  if (payload.toUserId === null) {
+    toUserId = null;
+  } else if (
+    typeof payload.toUserId === 'string' &&
+    isUuidV7(payload.toUserId)
+  ) {
+    if ((payload.fromUserId as string) === (payload.toUserId as string)) {
+      return null;
+    }
+    toUserId = payload.toUserId as UserId;
+  } else {
+    return null;
+  }
+  if (typeof payload.fromDisplayName !== 'string') return null;
+  const displayName = payload.fromDisplayName.trim();
+  if (
+    displayName.length === 0 ||
+    displayName.length > MAX_CHAT_REQUEST_DISPLAY_NAME_LENGTH
+  ) {
+    return null;
+  }
+  return {
+    kind: 'chat.request',
+    payload: {
+      requestId: payload.requestId as MessageId,
+      fromUserId: payload.fromUserId as UserId,
+      fromDisplayName: displayName,
+      toUserId,
+    },
+  };
+}
+
+function validateChatRequestAcceptBody(
+  value: Record<string, unknown>,
+): ChatRequestAcceptBody | null {
+  const payload = value.payload;
+  if (!isRecord(payload)) return null;
+  if (typeof payload.requestId !== 'string' || !isUuidV7(payload.requestId)) {
+    return null;
+  }
+  if (
+    typeof payload.accepterUserId !== 'string' ||
+    !isUuidV7(payload.accepterUserId)
+  ) {
+    return null;
+  }
+  if (
+    typeof payload.requesterUserId !== 'string' ||
+    !isUuidV7(payload.requesterUserId)
+  ) {
+    return null;
+  }
+  if (
+    (payload.accepterUserId as string) === (payload.requesterUserId as string)
+  ) {
+    return null;
+  }
+  if (typeof payload.accepterDisplayName !== 'string') return null;
+  const displayName = payload.accepterDisplayName.trim();
+  if (
+    displayName.length === 0 ||
+    displayName.length > MAX_CHAT_REQUEST_DISPLAY_NAME_LENGTH
+  ) {
+    return null;
+  }
+  return {
+    kind: 'chat.request.accept',
+    payload: {
+      requestId: payload.requestId as MessageId,
+      accepterUserId: payload.accepterUserId as UserId,
+      accepterDisplayName: displayName,
+      requesterUserId: payload.requesterUserId as UserId,
+    },
+  };
+}
+
+function validateChatRequestDeclineBody(
+  value: Record<string, unknown>,
+): ChatRequestDeclineBody | null {
+  const payload = value.payload;
+  if (!isRecord(payload)) return null;
+  if (typeof payload.requestId !== 'string' || !isUuidV7(payload.requestId)) {
+    return null;
+  }
+  if (
+    typeof payload.declinerUserId !== 'string' ||
+    !isUuidV7(payload.declinerUserId)
+  ) {
+    return null;
+  }
+  if (
+    typeof payload.requesterUserId !== 'string' ||
+    !isUuidV7(payload.requesterUserId)
+  ) {
+    return null;
+  }
+  if (
+    (payload.declinerUserId as string) === (payload.requesterUserId as string)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'chat.request.decline',
+    payload: {
+      requestId: payload.requestId as MessageId,
+      declinerUserId: payload.declinerUserId as UserId,
+      requesterUserId: payload.requesterUserId as UserId,
+    },
+  };
+}
+
+function validateGroupJoinRequestBody(
+  value: Record<string, unknown>,
+): GroupJoinRequestBody | null {
+  const payload = value.payload;
+  if (!isRecord(payload)) return null;
+  if (typeof payload.code !== 'string') return null;
+  const code = normalizeJoinCode(payload.code);
+  if (code.length !== JOIN_CODE_LENGTH) return null;
+  if (
+    typeof payload.joinerUserId !== 'string' ||
+    !isUuidV7(payload.joinerUserId)
+  ) {
+    return null;
+  }
+  if (typeof payload.joinerDisplayName !== 'string') return null;
+  const displayName = payload.joinerDisplayName.trim();
+  if (
+    displayName.length === 0 ||
+    displayName.length > MAX_JOIN_DISPLAY_NAME_LENGTH
+  ) {
+    return null;
+  }
+  return {
+    kind: 'group.join.request',
+    payload: {
+      code,
+      joinerUserId: payload.joinerUserId as UserId,
+      joinerDisplayName: displayName,
+    },
+  };
+}
+
+function validateGroupJoinInviteBody(
+  value: Record<string, unknown>,
+): GroupJoinInviteBody | null {
+  const payload = value.payload;
+  if (!isRecord(payload)) return null;
+  if (typeof payload.code !== 'string') return null;
+  const code = normalizeJoinCode(payload.code);
+  if (code.length !== JOIN_CODE_LENGTH) return null;
+  if (typeof payload.groupId !== 'string' || !isUuidV7(payload.groupId)) {
+    return null;
+  }
+  if (typeof payload.groupName !== 'string') return null;
+  const groupName = payload.groupName.trim();
+  if (groupName.length === 0 || groupName.length > MAX_JOIN_GROUP_NAME_LENGTH) {
+    return null;
+  }
+  if (
+    typeof payload.groupCreatedAt !== 'string' ||
+    !isIsoInstant(payload.groupCreatedAt)
+  ) {
+    return null;
+  }
+  if (
+    typeof payload.joinerUserId !== 'string' ||
+    !isUuidV7(payload.joinerUserId)
+  ) {
+    return null;
+  }
+  if (!Array.isArray(payload.members)) return null;
+  if (payload.members.length === 0) return null;
+  if (payload.members.length > MAX_JOIN_INVITE_MEMBERS) return null;
+  const members: GroupJoinInviteMember[] = [];
+  for (const raw of payload.members) {
+    const member = validateGroupJoinInviteMember(raw);
+    if (member === null) return null;
+    members.push(member);
+  }
+  return {
+    kind: 'group.join.invite',
+    payload: {
+      code,
+      groupId: payload.groupId as GroupId,
+      groupName,
+      groupCreatedAt: payload.groupCreatedAt,
+      joinerUserId: payload.joinerUserId as UserId,
+      members,
+    },
+  };
+}
+
+function validateGroupJoinInviteMember(
+  value: unknown,
+): GroupJoinInviteMember | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.userId !== 'string' || !isUuidV7(value.userId)) return null;
+  if (typeof value.displayName !== 'string') return null;
+  const displayName = value.displayName.trim();
+  if (
+    displayName.length === 0 ||
+    displayName.length > MAX_JOIN_DISPLAY_NAME_LENGTH
+  ) {
+    return null;
+  }
+  if (value.role !== 'admin' && value.role !== 'member') return null;
+  if (typeof value.joinedAt !== 'string' || !isIsoInstant(value.joinedAt)) {
+    return null;
+  }
+  return {
+    userId: value.userId as UserId,
+    displayName,
+    role: value.role,
+    joinedAt: value.joinedAt,
+  };
 }
 
 function validateMsgTextBody(

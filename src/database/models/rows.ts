@@ -86,3 +86,17 @@ export interface GroupLocationSharingRow {
   created_at: string;
   updated_at: string;
 }
+
+// D-076. Chat request handshake row. The id equals the requestId sent on
+// the wire so both peers converge on the same row (see migration 0006).
+export interface ChatRequestRow {
+  id: string;
+  requester_user_id: string;
+  recipient_user_id: string;
+  requester_display_name: string;
+  direction: string;
+  status: string;
+  created_at: string;
+  resolved_at: string | null;
+  updated_at: string;
+}

@@ -90,7 +90,103 @@ export interface MsgTextBody {
   };
 }
 
-export type EnvelopeBody = TestPingBody | GroupLocationBody | MsgTextBody;
+// Group join V1 (D-075). Offline nearby group discovery + membership install.
+//
+// Request: B broadcasts the normalized join code plus its own identity so any
+// nearby device that hosts a matching group can reply. The `code` is a
+// convenience token, not a secret (see 05-SECURITY.md §8 / joinCode.ts).
+//
+// Invite: A unicasts the group snapshot back to B's `originDeviceId`. B uses
+// this to install the group + its active member set locally so A↔B chat can
+// begin immediately. Envelope stays direct-only (ttl=0, hopCount=0).
+//
+// Both envelope kinds are ignored by the RelayRouter (never persisted in the
+// diagnostic group, never forwarded).
+export const MAX_JOIN_DISPLAY_NAME_LENGTH = 64;
+export const MAX_JOIN_GROUP_NAME_LENGTH = 64;
+export const MAX_JOIN_INVITE_MEMBERS = 50;
+
+export interface GroupJoinRequestBody {
+  readonly kind: 'group.join.request';
+  readonly payload: {
+    readonly code: string;
+    readonly joinerUserId: UserId;
+    readonly joinerDisplayName: string;
+  };
+}
+
+export interface GroupJoinInviteMember {
+  readonly userId: UserId;
+  readonly displayName: string;
+  readonly role: 'admin' | 'member';
+  readonly joinedAt: string;
+}
+
+export interface GroupJoinInviteBody {
+  readonly kind: 'group.join.invite';
+  readonly payload: {
+    readonly code: string;
+    readonly groupId: GroupId;
+    readonly groupName: string;
+    readonly groupCreatedAt: string;
+    readonly joinerUserId: UserId;
+    readonly members: readonly GroupJoinInviteMember[];
+  };
+}
+
+// Chat request V1 (D-076). Consumer-friendly 1-to-1 handshake used before
+// any msg.text can be exchanged. Identity is revealed inside the request
+// itself (privacy-first: before a request, a nearby peer is shown as an
+// anonymous "Nearby OFFGRID device"). Direct-only envelopes: hopCount=0,
+// ttl=0, never persisted in the diagnostic group and never forwarded by
+// the RelayRouter. See docs/10-DECISIONS.md D-076.
+export const MAX_CHAT_REQUEST_DISPLAY_NAME_LENGTH = 64;
+
+// `toUserId` is nullable. Wi-Fi Direct peer discovery only exposes device
+// addresses, not OFFGRID user identities — so the requester frequently does
+// not know the recipient's userId at the moment they tap "message this
+// nearby device". A `null` toUserId means: "for whoever receives this
+// directly over the WFD link that has already formed". A concrete UserId
+// keeps the strict-addressing semantic when the requester already knows it
+// (e.g., a future flow where identity was previously exchanged).
+export interface ChatRequestBody {
+  readonly kind: 'chat.request';
+  readonly payload: {
+    readonly requestId: MessageId;
+    readonly fromUserId: UserId;
+    readonly fromDisplayName: string;
+    readonly toUserId: UserId | null;
+  };
+}
+
+export interface ChatRequestAcceptBody {
+  readonly kind: 'chat.request.accept';
+  readonly payload: {
+    readonly requestId: MessageId;
+    readonly accepterUserId: UserId;
+    readonly accepterDisplayName: string;
+    readonly requesterUserId: UserId;
+  };
+}
+
+export interface ChatRequestDeclineBody {
+  readonly kind: 'chat.request.decline';
+  readonly payload: {
+    readonly requestId: MessageId;
+    readonly declinerUserId: UserId;
+    readonly requesterUserId: UserId;
+  };
+}
+
+export type EnvelopeBody =
+  | TestPingBody
+  | GroupLocationBody
+  | MsgTextBody
+  | GroupJoinRequestBody
+  | GroupJoinInviteBody
+  | ChatRequestBody
+  | ChatRequestAcceptBody
+  | ChatRequestDeclineBody;
 
 export interface MessageEnvelope {
   readonly v: 1;

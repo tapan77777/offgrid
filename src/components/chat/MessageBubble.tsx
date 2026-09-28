@@ -57,7 +57,7 @@ export function MessageBubble({
           {isSelf && status ? (
             <MessageStatusDot
               state={status}
-              testID={testID ? `${testID}-status` : undefined}
+              {...(testID ? { testID: `${testID}-status` } : {})}
             />
           ) : null}
         </View>
