@@ -15,6 +15,11 @@ export interface DeviceRow {
   public_key: string | null;
   created_at: string;
   last_seen_at: string | null;
+  // D-078 seamless connection. NULL for merely-discovered devices; set once
+  // the D-076 chat-request handshake completes with the remote user.
+  linked_user_id: string | null;
+  linked_at: string | null;
+  last_known_device_address: string | null;
 }
 
 export interface GroupRow {

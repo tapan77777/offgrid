@@ -6,6 +6,7 @@ import { locationKinematics } from './0003_location_kinematics';
 import { groupLocationSharing } from './0004_group_location_sharing';
 import { directConversations } from './0005_direct_conversations';
 import { chatRequests } from './0006_chat_requests';
+import { linkedPeers } from './0007_linked_peers';
 
 export const allMigrations: readonly Migration[] = [
   initialSchema,
@@ -14,6 +15,7 @@ export const allMigrations: readonly Migration[] = [
   groupLocationSharing,
   directConversations,
   chatRequests,
+  linkedPeers,
 ];
 
 const CREATE_MIGRATIONS_TABLE = `

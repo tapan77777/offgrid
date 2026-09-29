@@ -6,4 +6,17 @@
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     </style>
 
+    <!--
+      Launch theme shown from cold-start until MainActivity flips to
+      AppTheme in onCreate. Uses the OFFGRID splash drawable as the
+      window background so the splash appears instantly with no white
+      flash before React Native finishes booting.
+    -->
+    <style name="LaunchTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash_screen</item>
+        <item name="android:statusBarColor">@color/offgrid_splash_background</item>
+        <item name="android:navigationBarColor">@color/offgrid_splash_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
 </resources>

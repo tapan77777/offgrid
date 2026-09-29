@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OFFGRID wordmark. Not part of the launcher icon.
+  "OFF" in ink50, "GRID" in forest400.
+  Helvetica Neue / Helvetica / Arial stack — modern geometric sans with a
+  neutral, engineered feel. Weight 700 with generous tracking (letter-spacing
+  ~10% of em) for a premium tech aesthetic.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 160" width="720" height="160">
+  <text x="360" y="112"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-weight="700"
+        font-size="96"
+        letter-spacing="9"
+        text-anchor="middle">
+    <tspan fill="#F4F6F8">OFF</tspan><tspan fill="#5AA37D">GRID</tspan>
+  </text>
+</svg>

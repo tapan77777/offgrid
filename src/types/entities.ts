@@ -27,6 +27,12 @@ export interface Device {
   publicKey: string | null;
   createdAt: string;
   lastSeenAt: string | null;
+  // D-078 seamless connection. Non-null means this device has completed the
+  // D-076 chat-request handshake with the referenced user at least once and
+  // is eligible for silent auto-reconnect.
+  linkedUserId: UserId | null;
+  linkedAt: string | null;
+  lastKnownDeviceAddress: string | null;
 }
 
 export type GroupStatus = 'active' | 'archived';

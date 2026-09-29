@@ -8,6 +8,7 @@ import { runMigrations } from '../database';
 import { applyStartupPragmas, createOpSqliteDb } from '../database/sqlite';
 import { ensureLocalDevice, ensureLocalUser } from './identity';
 import { ensureDiagnosticGroup, isDiagnosticsEnabled } from './communication';
+import { startConnectivityRuntime } from './communication/connectivityRuntime';
 import { startChatRequestRuntime, startChatRuntime } from './chat';
 import { startGroupJoinRuntime } from './groups';
 import { bootstrapMapProvider } from '../config/mapProviderBootstrap';
@@ -58,6 +59,11 @@ export function bootstrapApp(): AppBootstrapResult {
   // accept/decline replies for our outgoing requests. Same idempotent
   // lifecycle pattern as chatRuntime.
   startChatRequestRuntime({ db, localUserId: user.userId });
+  // D-078 seamless connection. App-owned CommunicationManager with LAZY
+  // init — the transport is only created on demand OR eagerly if the user
+  // already has at least one linked peer from a prior session. See
+  // connectivityRuntime.ts for the full rationale.
+  startConnectivityRuntime({ db, localDeviceId: device.deviceId });
   const map = bootstrapMapProvider();
   cached = {
     db,

@@ -36,6 +36,14 @@ export type {
   RequestJoinByCodeOptions,
   RequestJoinByCodeResult,
 } from './groupJoinService';
+export {
+  QR_INVITE_HOST,
+  QR_INVITE_SCHEME,
+  QR_INVITE_VERSION,
+  decodeInvitePayload,
+  encodeInvitePayload,
+} from './qrInvite';
+export type { QrInviteEncodeInput, QrInvitePayload } from './qrInvite';
 export { startGroupJoinResponder } from './groupJoinResponder';
 export type { StartGroupJoinResponderOptions } from './groupJoinResponder';
 export {

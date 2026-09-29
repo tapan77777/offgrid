@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Simplified small-size symbol. Used when the mark must survive 24-32px
+  rendering (in-app IconBadge, notification small-icon). Differences vs the
+  full mark:
+    - Only the innermost radar arc remains (the outer two blur into noise
+      below ~40px).
+    - Compass ticks are dropped.
+    - Arrow keel is removed; the two vanes stay differentiated by fill.
+  Same 108 viewBox so it can be swapped in-place.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
+  <path d="M 40.000 29.373 A 28 28 0 0 1 82.000 30.006"
+        fill="none" stroke="#5AA37D" stroke-width="5"
+        stroke-linecap="round"/>
+  <circle cx="82" cy="30" r="3" fill="#88C6A5"/>
+  <circle cx="54" cy="54" r="22" fill="none" stroke="#5AA37D" stroke-width="3"/>
+  <g transform="rotate(30 54 54)">
+    <path d="M 54 38 L 63 67 L 54 61 L 45 67 Z" fill="#F4F6F8"/>
+    <path d="M 54 38 L 63 67 L 54 61 Z" fill="#5AA37D"/>
+  </g>
+</svg>

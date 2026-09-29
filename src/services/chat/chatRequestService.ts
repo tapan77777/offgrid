@@ -1,6 +1,7 @@
 import type { OffgridDb } from '../../database';
 import {
   ChatRequestRepo,
+  DeviceRepo,
   UserRepo,
 } from '../../database/repositories';
 import type { CommunicationManager } from '../communication/CommunicationManager';
@@ -226,6 +227,16 @@ export async function acceptChatRequest(
     'accepted',
     now,
   );
+
+  // D-078: on accept, the recipient trusts the requester enough that a
+  // future re-encounter can auto-reconnect without another handshake. Record
+  // the requester's device row as linked. Done BEFORE the wire send so the
+  // marker survives a momentary transport failure.
+  DeviceRepo.markLinked(options.db, {
+    deviceId: options.requesterOriginDeviceId,
+    linkedUserId: request.requesterUserId,
+    nowIso: now,
+  });
 
   if (!options.manager) {
     throw new ChatRequestError(

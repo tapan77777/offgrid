@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Legacy full-bleed launcher icon for pre-API-26 devices. Dark rounded-square
+  tile with the mark scaled up to fill more of the canvas (there's no
+  adaptive-mask to worry about). Canvas is a nominal 192x192 (matches
+  xxxhdpi legacy density); rasterized down to 48/72/96/144/192.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <linearGradient id="bgFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0E1215"/>
+      <stop offset="1" stop-color="#07090B"/>
+    </linearGradient>
+    <linearGradient id="arcSoftL" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#88C6A5" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#5AA37D" stop-opacity="0.85"/>
+    </linearGradient>
+    <linearGradient id="arcMidL" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5AA37D" stop-opacity="1"/>
+      <stop offset="1" stop-color="#3E7A5B" stop-opacity="1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded tile. Radius = 22% (Android launcher squircle-ish). -->
+  <rect x="0" y="0" width="192" height="192" rx="42" ry="42" fill="url(#bgFade)"/>
+
+  <!-- Slim inner border for a premium bezel line. Very subtle. -->
+  <rect x="0.5" y="0.5" width="191" height="191" rx="41.5" ry="41.5"
+        fill="none" stroke="#1B2227" stroke-width="1"/>
+
+  <!--
+    Mark occupies 108 units centered in the 192 tile. Translate by
+    (192-108)/2 = 42 so the internal geometry can reuse the 108-space
+    coordinates from symbol-mark.svg with the same visual proportions.
+  -->
+  <g transform="translate(42 42)">
+    <path d="M 61.639 10.437 A 44 44 0 0 1 97.563 45.361"
+          fill="none" stroke="url(#arcSoftL)" stroke-width="3.2"
+          stroke-linecap="round" opacity="0.55"/>
+    <path d="M 47.750 18.281 A 36 36 0 0 1 89.719 39.750"
+          fill="none" stroke="url(#arcSoftL)" stroke-width="3.2"
+          stroke-linecap="round" opacity="0.78"/>
+    <path d="M 40.000 29.373 A 28 28 0 0 1 82.000 30.006"
+          fill="none" stroke="url(#arcMidL)" stroke-width="3.6"
+          stroke-linecap="round"/>
+
+    <circle cx="97.5" cy="45.4" r="2.4" fill="#88C6A5"/>
+    <circle cx="61.6" cy="10.4" r="1.8" fill="#88C6A5" opacity="0.75"/>
+
+    <circle cx="54" cy="54" r="22" fill="none" stroke="#5AA37D" stroke-width="2.4"/>
+    <g stroke="#5AA37D" stroke-width="2" stroke-linecap="round">
+      <line x1="54" y1="30" x2="54" y2="33.5"/>
+      <line x1="78" y1="54" x2="74.5" y2="54"/>
+      <line x1="54" y1="78" x2="54" y2="74.5"/>
+      <line x1="30" y1="54" x2="33.5" y2="54"/>
+    </g>
+
+    <g transform="rotate(30 54 54)">
+      <path d="M 54 40 L 62 66 L 54 61 L 46 66 Z" fill="#F4F6F8"/>
+      <path d="M 54 40 L 62 66 L 54 61 Z" fill="#5AA37D"/>
+      <line x1="54" y1="40" x2="54" y2="61"
+            stroke="#0E1215" stroke-width="0.8" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

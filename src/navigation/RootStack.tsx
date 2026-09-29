@@ -12,6 +12,8 @@ import { DiagnosticsScreen } from '../screens/DiagnosticsScreen';
 import { LocationDiagnosticsScreen } from '../screens/LocationDiagnosticsScreen';
 import { CreateGroupScreen } from '../screens/CreateGroupScreen';
 import { JoinGroupScreen } from '../screens/JoinGroupScreen';
+import { GroupInviteQrScreen } from '../screens/GroupInviteQrScreen';
+import { ScanJoinQrScreen } from '../screens/ScanJoinQrScreen';
 import { NearbyScreen } from '../screens/NearbyScreen';
 import { colors, typography } from '../theme';
 
@@ -24,6 +26,8 @@ export type RootStackParamList = {
   Members: { groupId: string };
   CreateGroup: undefined;
   JoinGroup: undefined;
+  GroupInviteQr: { groupId: string };
+  ScanJoinQr: undefined;
   Nearby: undefined;
   Settings: undefined;
   Advanced: undefined;
@@ -88,6 +92,16 @@ export function RootStack(): React.JSX.Element {
         name="JoinGroup"
         component={JoinGroupScreen}
         options={{ title: 'Join a group' }}
+      />
+      <Stack.Screen
+        name="GroupInviteQr"
+        component={GroupInviteQrScreen}
+        options={{ title: 'Invite' }}
+      />
+      <Stack.Screen
+        name="ScanJoinQr"
+        component={ScanJoinQrScreen}
+        options={{ title: 'Scan QR' }}
       />
       <Stack.Screen
         name="Nearby"

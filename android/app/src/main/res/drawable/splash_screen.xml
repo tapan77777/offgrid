@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  OFFGRID splash. Dark app background with the symbol centered vertically
+  (slightly above optical center) and the wordmark sitting a comfortable
+  distance below it. Both symbol and wordmark are bucketed PNGs so they
+  stay crisp across densities.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/offgrid_splash_background"/>
+    <item>
+        <bitmap
+            android:src="@drawable/splash_symbol"
+            android:gravity="center"/>
+    </item>
+    <item android:top="180dp">
+        <bitmap
+            android:src="@drawable/splash_wordmark"
+            android:gravity="center|bottom"
+            android:bottom="240dp"/>
+    </item>
+</layer-list>

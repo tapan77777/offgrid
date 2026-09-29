@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Screen } from '../components/Screen';
@@ -13,11 +13,13 @@ import { StatusBadge } from '../components/StatusBadge';
 import { IconBadge } from '../components/IconBadge';
 import { colors, radii, spacing, typography } from '../theme';
 import { useAppFoundationStore } from '../store/appFoundationStore';
+import { useConnectivityStore } from '../store/connectivityStore';
 import { useGroupsStore } from '../store/groupsStore';
 import { bootstrapApp } from '../services/appBootstrap';
 import {
   GROUP_MEMBER_LIMIT,
   GroupsError,
+  encodeInvitePayload,
   getGroupDetail,
   leaveGroup,
   renameGroup,
@@ -48,6 +50,9 @@ export function GroupScreen(): React.JSX.Element {
   const localUserId = useAppFoundationStore(s => s.localUserId);
   const localDeviceId = useAppFoundationStore(s => s.localDeviceId);
   const refreshGroups = useGroupsStore(s => s.refresh);
+  const connectivityLabel = useConnectivityStore(s => s.label);
+  const nearbyCount = useConnectivityStore(s => s.nearbyCount);
+  const lastSeenMinutes = useConnectivityStore(s => s.lastSeenMinutes);
 
   const [detail, setDetail] = useState<GroupDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -226,6 +231,31 @@ export function GroupScreen(): React.JSX.Element {
     }
   }, [detail, localUserId, sharingBusy, sharingView]);
 
+  const shareInvite = useCallback(async () => {
+    if (!detail) return;
+    try {
+      const link = encodeInvitePayload({
+        groupId: detail.group.id,
+        groupName: detail.group.name,
+        joinCode: detail.joinCode,
+      });
+      await Share.share({
+        message:
+          `Join "${detail.group.name}" on OFFGRID.\n` +
+          `Join code: ${detail.joinCode}\n` +
+          `QR link: ${link}`,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      Alert.alert('Could not share', msg);
+    }
+  }, [detail]);
+
+  const showInviteQr = useCallback(() => {
+    if (!detail) return;
+    navigation.navigate('GroupInviteQr', { groupId: detail.group.id });
+  }, [detail, navigation]);
+
   const onShareCurrentLocation = useCallback(async () => {
     if (!detail || !localUserId) return;
     const manager = getActiveCommunicationManager();
@@ -329,13 +359,15 @@ export function GroupScreen(): React.JSX.Element {
         )}
       </View>
 
-      {/*
-       * Real transport state is only wired into the Diagnostics screen. Show
-       * "no connection" here to stay honest (CLAUDE.md §20, D-029).
-       */}
+      {/* D-078: driven by the app-owned ConnectivityController via the
+       * connectivity store. Same source of truth as HomeScreen. */}
       <View style={styles.section}>
         <Card>
-          <ConnectionStatus state="noConnection" />
+          <ConnectionStatus
+            state={connectivityLabel}
+            nearbyCount={nearbyCount}
+            lastSeenMinutes={lastSeenMinutes}
+          />
         </Card>
       </View>
 
@@ -351,6 +383,20 @@ export function GroupScreen(): React.JSX.Element {
             <Text style={styles.codeText} testID="group-invite-code">
               {detail.joinCode}
             </Text>
+          </View>
+          <View style={styles.inviteActions}>
+            <Button
+              label="Show QR code"
+              variant="secondary"
+              onPress={showInviteQr}
+              testID="group-invite-show-qr"
+            />
+            <Button
+              label="Share invite"
+              variant="secondary"
+              onPress={shareInvite}
+              testID="group-invite-share"
+            />
           </View>
         </Card>
       </View>
@@ -758,6 +804,12 @@ const styles = StyleSheet.create({
     letterSpacing: 6,
     color: colors.textPrimary,
     fontFamily: 'Courier',
+  },
+  inviteActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    flexWrap: 'wrap',
   },
   renameRow: {
     gap: spacing.sm,

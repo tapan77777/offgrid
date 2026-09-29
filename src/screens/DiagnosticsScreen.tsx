@@ -20,9 +20,8 @@ import {
   isDiagnosticsEnabled,
   setDiagnosticsEnabled,
 } from '../services/communication';
-import { setActiveCommunicationManager } from '../services/communication/commsRuntime';
+import { ensureConnectivityRuntimeStarted } from '../services/communication/connectivityRuntime';
 import { attachGroupLocationReceiver } from '../services/location/groupLocationReceiver';
-import { WifiP2pTransport } from '../services/communication/transports/WifiP2pTransport';
 import type { DeviceId } from '../types/ids';
 import { useAppFoundationStore } from '../store/appFoundationStore';
 import {
@@ -53,6 +52,7 @@ export function DiagnosticsScreen(): React.JSX.Element {
   const managerRef = useRef<CommunicationManager | null>(null);
   const routerRef = useRef<RelayRouter | null>(null);
   const receiverUnsubRef = useRef<(() => void) | null>(null);
+  const managerListenerUnsubRef = useRef<(() => void) | null>(null);
   const [permission, setPermission] = useState<PermissionStatus>('unknown');
   const [enabled, setEnabled] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
@@ -90,36 +90,35 @@ export function DiagnosticsScreen(): React.JSX.Element {
       setPermission('not-android');
     }
     return () => {
-      const mgr = managerRef.current;
+      // D-078: the manager is app-owned; Diagnostics only attaches
+      // diagnostic listeners (log tap, RelayRouter, group-location receiver)
+      // on top. On unmount we detach those but never dispose the manager
+      // or clear the active-manager slot.
       const router = routerRef.current;
       const detachRx = receiverUnsubRef.current;
+      const detachMgr = managerListenerUnsubRef.current;
       managerRef.current = null;
       routerRef.current = null;
       receiverUnsubRef.current = null;
-      setActiveCommunicationManager(null);
+      managerListenerUnsubRef.current = null;
+      if (detachMgr) detachMgr();
       if (detachRx) detachRx();
       if (router) {
         router.detach();
-      }
-      if (mgr) {
-        mgr.dispose().catch(() => undefined);
       }
       reset();
     };
   }, [foundationStatus, reset]);
 
-  const ensureManager = useCallback((): CommunicationManager | null => {
+  const ensureManager = useCallback(async (): Promise<CommunicationManager | null> => {
     if (managerRef.current) return managerRef.current;
     if (!localDeviceId) return null;
     const { db } = bootstrapApp();
     ensureDiagnosticGroup(db);
-    const transport = new WifiP2pTransport();
-    const manager = new CommunicationManager({
-      transport,
-      db,
-      localDeviceId,
-    });
-    manager.on(event => {
+    const manager = await ensureConnectivityRuntimeStarted();
+    if (!manager) return null;
+    const transport = manager.getUnderlyingTransport();
+    managerListenerUnsubRef.current = manager.on(event => {
       switch (event.kind) {
         case 'stateChanged':
           setTransportState(event.state);
@@ -222,7 +221,8 @@ export function DiagnosticsScreen(): React.JSX.Element {
     router.attach();
     managerRef.current = manager;
     routerRef.current = router;
-    setActiveCommunicationManager(manager);
+    // D-078: no setActiveCommunicationManager here — the app-owned
+    // ConnectivityRuntime already registered this manager as active.
     receiverUnsubRef.current = attachGroupLocationReceiver({
       db,
       manager,
@@ -327,9 +327,10 @@ export function DiagnosticsScreen(): React.JSX.Element {
 
   const onInitialize = () => {
     runGuarded('initialize', async () => {
-      const manager = ensureManager();
-      if (!manager) throw new Error('local device id not ready yet');
-      await manager.initialize();
+      // D-078: the runtime has already initialized the manager; ensureManager
+      // here just wires up the diagnostic listeners + RelayRouter on top.
+      const manager = await ensureManager();
+      if (!manager) throw new Error('local networking unavailable on this device');
     });
   };
 

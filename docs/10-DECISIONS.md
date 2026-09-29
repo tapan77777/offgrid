@@ -2184,3 +2184,155 @@ UI (`NearbyScreen` + `nearbyStore` + Home CTA):
 
 ---
 
+## D-078 — Seamless connection / auto-reconnect (linked peers, per-peer backoff, app-owned CommunicationManager)
+
+### Status
+Accepted — implementation in V0 milestone follow-up.
+
+### Context
+After D-076 the D-074 chat V1 exchange requires a live Wi-Fi Direct
+session, and D-063 makes the CommunicationManager the sole owner of that
+session. Today the manager is created by whichever screen brings it up
+(`NearbyScreen`, `DiagnosticsScreen`) and torn down when that screen
+unmounts. Consequence: once A and B complete a chat-request handshake
+and drift out of range, coming back into range does NOT restore the
+session — one side has to reopen the Nearby screen to re-establish
+discovery + reconnect. That is neither offline-first nor consumer-simple
+(CLAUDE.md §Product Principles, §Simple UX).
+
+A parallel gap: nothing in the local DB records "this peer is trusted"
+after the handshake, so even if we kept the manager alive we would not
+know which peers we should silently reconnect to (versus every random
+device that walks past).
+
+### Decision
+Introduce an **app-owned CommunicationManager** with **lazy init**, plus
+a **linked-peer** marker on the existing `devices` table, plus a
+**ConnectivityController** that owns a per-peer backoff state machine.
+
+1. **Linked peer** = a device row on which the D-076 chat-request
+   handshake has completed at least once. Materialised as three additive
+   columns on `devices` (migration 0007):
+   - `linked_user_id` — the UserId this device belongs to (non-null iff
+     linked).
+   - `linked_at` — first-successful-link timestamp; preserved across
+     re-links.
+   - `last_known_device_address` — Wi-Fi P2P MAC (or transport-level
+     address) observed most recently. Enables targeted reconnect without
+     waiting for discovery to converge.
+
+   Rejected alternative: a separate `linked_peers` table. Every linked
+   peer is already a device we've seen at least once; a new join table
+   would duplicate the identity+address fields already on `devices`.
+
+2. **Linked-peer write** happens on chat-request accept, on BOTH sides:
+   - Recipient: `chatRequestService.acceptChatRequest` calls
+     `DeviceRepo.markLinked(requesterOriginDeviceId, requesterUserId)`
+     BEFORE the accept envelope is sent. The trust marker survives even
+     if the wire send fails immediately after (CLAUDE.md §10 persist
+     first).
+   - Requester: `chatRequestResponder.handleIncomingAccept` calls
+     `DeviceRepo.markLinked(envelope.originDeviceId, accepterUserId)`
+     when the accept envelope arrives. Idempotent — re-accept is safe.
+
+3. **App-owned CommunicationManager**, **lazy init**:
+   - `startConnectivityRuntime` is called from `bootstrapApp`. On cold
+     boot with no linked peers → it stays dormant; no transport is
+     instantiated, no WFD/location permission prompt is raised. On cold
+     boot with at least one linked peer → it eagerly calls
+     `ensureConnectivityRuntimeStarted()` which creates the transport
+     and starts the reconnect controller.
+   - Screens (`NearbyScreen`, `DiagnosticsScreen`, join flows, scan
+     flow) call `ensureConnectivityRuntimeStarted()` on demand instead
+     of constructing their own manager. The call is idempotent — the
+     manager comes up once for the app's lifetime and stays up.
+   - Rejected alternative: keep screen-owned managers. Breaks silent
+     reconnect the moment the user navigates away — the exact bug this
+     decision fixes.
+
+4. **ConnectivityController** owns the reconnect loop:
+   - Backoff schedule per drop: **2s, 5s, 15s, 30s, 60s, then hold at
+     60s**. Reset to 0 on any `connectionChanged.snapshot.groupFormed
+     === true` event.
+   - **Max 1 concurrent auto-connect attempt** (Android WFD supports
+     only one P2P group at a time).
+   - **Background discovery ONLY when at least one linked peer exists.**
+     No radio activity for a fresh install that has never handshaked.
+   - Rejected alternative: a fixed poll interval. Wastes radio when the
+     peer is genuinely gone; slow when the peer is only briefly out of
+     range. Exponential backoff with a low ceiling matches the WFD
+     recovery envelope observed in D-070 physical testing.
+   - Rejected alternative: parallel connect attempts to N linked peers.
+     WFD's single-P2P-group constraint would make N-1 attempts fail with
+     ambiguous errors; the extra concurrency has no benefit.
+
+5. **Honest UI (CLAUDE.md §20)** — the `useConnectivityStore` label is
+   `localConnected` ONLY after the manager reports
+   `groupFormed === true`. Before that, the label is `connecting` (an
+   attempt is scheduled or in flight), `lastSeen` (a linked peer was
+   previously seen), `internet` (NetInfo says the OS is on the internet
+   and nothing local is up), or `noConnection`.
+
+6. **NetInfo (`@react-native-community/netinfo`) is display-only.** The
+   `internetAvailable` flag surfaces an "on the internet" hint in the
+   status label but is NEVER used as a messaging transport (CLAUDE.md
+   §11 §37). Adapter uses a lazy `require` so an unlinked native module
+   downgrades to a no-op signal (label falls back to `noConnection`)
+   rather than crashing.
+
+### Consequence
+
+- New migration `src/database/migrations/0007_linked_peers.ts` — ADD
+  COLUMN `linked_user_id`, `linked_at`, `last_known_device_address` on
+  `devices`, plus a partial index on `linked_user_id IS NOT NULL`.
+  Additive; rollback-safe to v6.
+- Extended `DeviceRow` (`src/database/models/rows.ts`) and `Device`
+  entity (`src/types/entities.ts`) with the three new fields.
+- New helpers in `src/database/repositories/deviceRepository.ts`:
+  `markLinked`, `unlink`, `updateLastKnownDeviceAddress`, `listLinked`,
+  `findLinkedByDeviceAddress`, `findLinkedByUserId`. Namespaced under
+  the existing `DeviceRepo` export — no new repository module.
+- New service `src/services/communication/connectivityController.ts` —
+  pure JS state machine, injectable scheduler + clock for tests.
+- New service `src/services/communication/connectivityRuntime.ts` —
+  lazy singleton lifecycle; `startConnectivityRuntime` from
+  `appBootstrap.ts`, `ensureConnectivityRuntimeStarted()` from screens.
+- New adapter `src/services/communication/netinfoAdapter.ts` — lazy
+  require + graceful downgrade.
+- New store `src/store/connectivityStore.ts` — thin zustand projection
+  of the controller's snapshot; consumed by `HomeScreen` and
+  `GroupScreen` to replace the hard-coded `state="noConnection"`.
+- `CommunicationManager` gains `getUnderlyingTransport()` — a controlled
+  escape hatch used ONLY by `DiagnosticsScreen`'s `RelayRouter` /
+  `attachGroupLocationReceiver` wiring so those two dev tools can share
+  the same transport as the app-owned manager.
+- `chatRequestService.acceptChatRequest` and
+  `chatRequestResponder.handleIncomingAccept` now call
+  `DeviceRepo.markLinked` (per §Decision-2 above).
+- Wire changes:
+  - `appBootstrap.ts` calls `startConnectivityRuntime` alongside the
+    existing chat/group/chatRequest runtimes.
+  - `NearbyScreen.tsx` no longer creates a `CommunicationManager` or
+    a `WifiP2pTransport`; it calls `ensureConnectivityRuntimeStarted()`
+    and never disposes the manager. `stopSearching` only stops
+    discovery when zero linked peers exist (otherwise the controller
+    owns discovery for auto-reconnect).
+  - `DiagnosticsScreen.tsx` same pattern; grabs `getUnderlyingTransport()`
+    for its `RelayRouter`.
+  - `HomeScreen.tsx` + `GroupScreen.tsx` render `<ConnectionStatus />`
+    from `useConnectivityStore` instead of a hard-coded
+    `"noConnection"`.
+- `package.json` adds `"@react-native-community/netinfo": "^12.0.1"`.
+  Requires a native rebuild before the internetAvailable flag becomes
+  truthful; app remains functional against a JS-only run (adapter
+  degrades to no-op).
+- Cross-references: D-014 (dedupe), D-023 (per-user location opt-in),
+  D-028 (consumer connection vocabulary), D-029 (honest UI),
+  D-062 (Wi-Fi P2P V0), D-063 (CommunicationManager pattern),
+  D-069 (direct-only guard), D-070 (3-phone physical matrix),
+  D-074 (chat V1), D-076 (chat-request handshake), CLAUDE.md §Product
+  Principles, §11 (offline vs. cloud), §20 (honest UI), §37 (definition
+  of success).
+
+---
+

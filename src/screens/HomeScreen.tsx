@@ -12,6 +12,7 @@ import { ComingSoonNotice } from '../components/ComingSoonNotice';
 import { Icon } from '../components/Icon';
 import { IconBadge } from '../components/IconBadge';
 import { useAppFoundationStore } from '../store/appFoundationStore';
+import { useConnectivityStore } from '../store/connectivityStore';
 import { colors, radii, spacing, typography } from '../theme';
 import type { RootStackParamList } from '../navigation/RootStack';
 
@@ -21,6 +22,9 @@ export function HomeScreen(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
   const status = useAppFoundationStore(s => s.status);
   const error = useAppFoundationStore(s => s.error);
+  const connectivityLabel = useConnectivityStore(s => s.label);
+  const nearbyCount = useConnectivityStore(s => s.nearbyCount);
+  const lastSeenMinutes = useConnectivityStore(s => s.lastSeenMinutes);
 
   const bootReady = status === 'ready';
 
@@ -40,15 +44,14 @@ export function HomeScreen(): React.JSX.Element {
       </View>
 
       <View style={styles.section}>
-        {/*
-         * Real transport state is only available on the Diagnostics screen for
-         * now. Home shows the honest "no connection" state until a real
-         * connection lifecycle is wired into a consumer store. See D-029,
-         * §11 of 06-UX-FLOWS.md. Do not fabricate a "connected" state here.
-         */}
+        {/* D-078: driven by the app-owned ConnectivityController via the
+         * connectivity store. Never optimistic — `localConnected` only shows
+         * after the manager observes a confirmed session. */}
         <Card>
           <ConnectionStatus
-            state="noConnection"
+            state={connectivityLabel}
+            nearbyCount={nearbyCount}
+            lastSeenMinutes={lastSeenMinutes}
             testID="home-connection-status"
           />
         </Card>

@@ -364,6 +364,14 @@ export class CommunicationManager {
     return this.state;
   }
 
+  // D-078 escape hatch. The Diagnostics screen attaches a RelayRouter to
+  // the SAME underlying transport as the app-owned manager so the two
+  // subscribers can coexist. Production UI paths never call this — regular
+  // consumer screens use the manager's high-level send methods.
+  getUnderlyingTransport(): Transport {
+    return this.transport;
+  }
+
   async dispose(): Promise<void> {
     if (this.unsubscribe) {
       this.unsubscribe();

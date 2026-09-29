@@ -29,6 +29,10 @@ describe('runMigrations', () => {
         version: 6,
         name: '0006_chat_requests',
       }),
+      expect.objectContaining({
+        version: 7,
+        name: '0007_linked_peers',
+      }),
     ]);
     db.close();
   });
@@ -37,7 +41,7 @@ describe('runMigrations', () => {
     const db = createInMemoryDb();
     const report = runMigrations(db);
     expect(report.appliedVersions).toEqual([]);
-    expect(report.currentVersion).toBe(6);
+    expect(report.currentVersion).toBe(7);
     db.close();
   });
 

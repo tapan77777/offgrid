@@ -24,11 +24,7 @@ import {
   type NearbyIncomingRequest,
 } from '../store/nearbyStore';
 import { CommunicationManager } from '../services/communication/CommunicationManager';
-import {
-  getActiveCommunicationManager,
-  setActiveCommunicationManager,
-} from '../services/communication/commsRuntime';
-import { WifiP2pTransport } from '../services/communication/transports/WifiP2pTransport';
+import { ensureConnectivityRuntimeStarted } from '../services/communication/connectivityRuntime';
 import {
   ChatRequestError,
   acceptChatRequest,
@@ -36,7 +32,7 @@ import {
   ensureDirectConversation,
   sendChatRequest,
 } from '../services/chat';
-import { UserRepo } from '../database/repositories';
+import { DeviceRepo, UserRepo } from '../database/repositories';
 import {
   ensureNearbyWifiPermission,
   hasNearbyWifiPermission,
@@ -68,33 +64,33 @@ export function NearbyScreen(): React.JSX.Element {
   const resetNearby = useNearbyStore(s => s.reset);
 
   const managerRef = useRef<CommunicationManager | null>(null);
-  const managerOwnedRef = useRef(false);
   const unsubscribeManagerRef = useRef<(() => void) | null>(null);
   const [connectionFormed, setConnectionFormed] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
 
+  // D-078: the CommunicationManager is app-owned. This screen only attaches
+  // event listeners while it is mounted / focused. It never disposes the
+  // manager or clears the active-manager slot.
   const teardown = useCallback(async () => {
     unsubscribeManagerRef.current?.();
     unsubscribeManagerRef.current = null;
-    const mgr = managerRef.current;
     managerRef.current = null;
-    if (mgr && managerOwnedRef.current) {
-      setActiveCommunicationManager(null);
-      try {
-        await mgr.dispose();
-      } catch {
-        // Disposing a transport can throw on Android when the underlying
-        // channel is already gone. Swallow — we're unmounting.
-      }
-    }
-    managerOwnedRef.current = false;
   }, []);
 
   const stopSearching = useCallback(async () => {
     const mgr = managerRef.current;
+    // Only stop discovery if there is no linked peer that needs continuous
+    // reconnect discovery (D-078: background discovery only when at least
+    // one linked peer exists). If linked peers exist, the ConnectivityController
+    // is the authoritative owner of discovery; interrupting it would break
+    // auto-reconnect.
     if (mgr) {
       try {
-        await mgr.stopDiscovery();
+        const { db } = bootstrapApp();
+        const linkedCount = DeviceRepo.listLinked(db).length;
+        if (linkedCount === 0) {
+          await mgr.stopDiscovery();
+        }
       } catch {
         // best-effort
       }
@@ -246,32 +242,24 @@ export function NearbyScreen(): React.JSX.Element {
     setStatus('initializing');
     setConnectionFormed(false);
 
-    const existing = getActiveCommunicationManager();
-    let manager = existing;
-    if (!manager) {
-      const { db } = bootstrapApp();
-      manager = new CommunicationManager({
-        transport: new WifiP2pTransport(),
-        db,
-        localDeviceId,
-      });
-      managerRef.current = manager;
-      managerOwnedRef.current = true;
-      setActiveCommunicationManager(manager);
-      attachToManager(manager);
-      try {
-        await manager.initialize();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-        setStatus('error');
-        await teardown();
-        return;
-      }
-    } else {
-      managerRef.current = manager;
-      managerOwnedRef.current = false;
-      attachToManager(manager);
+    // D-078: manager is app-owned by the ConnectivityRuntime. Ensure it is
+    // up (lazy init — this may trigger the WFD permission prompt the first
+    // time in a session where no linked peers exist yet).
+    let manager: CommunicationManager | null;
+    try {
+      manager = await ensureConnectivityRuntimeStarted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStatus('error');
+      return;
     }
+    if (!manager) {
+      setError('Local networking is unavailable on this device.');
+      setStatus('error');
+      return;
+    }
+    managerRef.current = manager;
+    attachToManager(manager);
 
     try {
       await manager.startDiscovery();
@@ -286,7 +274,6 @@ export function NearbyScreen(): React.JSX.Element {
     setError,
     setPermission,
     setStatus,
-    teardown,
   ]);
 
   useFocusEffect(

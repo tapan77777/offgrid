@@ -5,7 +5,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
-import { ComingSoonNotice } from '../components/ComingSoonNotice';
 import { colors, radii, spacing, typography } from '../theme';
 import { useAppFoundationStore } from '../store/appFoundationStore';
 import { useGroupsStore } from '../store/groupsStore';
@@ -75,52 +74,61 @@ export function JoinGroupScreen(): React.JSX.Element {
         </Text>
       </View>
 
-      <Card>
-        <Text style={typography.bodyStrong}>Join code</Text>
+      <Card testID="join-group-scan-card">
+        <Text style={typography.bodyStrong}>Scan a QR code</Text>
         <Text style={[typography.caption, styles.hint]}>
-          Letters and numbers, {JOIN_CODE_LENGTH} characters total.
+          Point your camera at the admin's QR to fill in the join code.
         </Text>
-        <TextInput
-          style={styles.input}
-          value={rawCode}
-          onChangeText={setRawCode}
-          placeholder="ABCD2345"
-          placeholderTextColor={colors.textMuted}
-          maxLength={JOIN_CODE_LENGTH * 2}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          editable={!busy}
-          autoFocus
-          testID="join-group-code-input"
-          accessibilityLabel="Join code"
-        />
-        {errorMessage !== null ? (
-          <Text style={styles.error} testID="join-group-error">
-            {errorMessage}
-          </Text>
-        ) : null}
-        <View style={styles.actions}>
+        <View style={styles.scanActions}>
           <Button
-            label="Cancel"
-            variant="ghost"
-            onPress={() => navigation.goBack()}
+            label="Scan QR code"
+            onPress={() => navigation.navigate('ScanJoinQr')}
             disabled={busy}
-            testID="join-group-cancel"
-          />
-          <Button
-            label={busy ? 'Looking for nearby group…' : 'Join'}
-            onPress={handleJoin}
-            disabled={!codeValid || busy || !localUserId}
-            testID="join-group-submit"
+            testID="join-group-scan"
           />
         </View>
       </Card>
 
       <View style={styles.section}>
-        <ComingSoonNotice
-          feature="Scan a QR code"
-          detail="Open the camera and scan an admin's QR to join. Available in a later release."
-        />
+        <Card>
+          <Text style={typography.bodyStrong}>Enter code</Text>
+          <Text style={[typography.caption, styles.hint]}>
+            Letters and numbers, {JOIN_CODE_LENGTH} characters total.
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={rawCode}
+            onChangeText={setRawCode}
+            placeholder="ABCD2345"
+            placeholderTextColor={colors.textMuted}
+            maxLength={JOIN_CODE_LENGTH * 2}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            editable={!busy}
+            testID="join-group-code-input"
+            accessibilityLabel="Join code"
+          />
+          {errorMessage !== null ? (
+            <Text style={styles.error} testID="join-group-error">
+              {errorMessage}
+            </Text>
+          ) : null}
+          <View style={styles.actions}>
+            <Button
+              label="Cancel"
+              variant="ghost"
+              onPress={() => navigation.goBack()}
+              disabled={busy}
+              testID="join-group-cancel"
+            />
+            <Button
+              label={busy ? 'Looking for nearby group…' : 'Join'}
+              onPress={handleJoin}
+              disabled={!codeValid || busy || !localUserId}
+              testID="join-group-submit"
+            />
+          </View>
+        </Card>
       </View>
     </Screen>
   );
@@ -160,6 +168,11 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   actions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+  },
+  scanActions: {
     flexDirection: 'row',
     gap: spacing.sm,
     justifyContent: 'flex-end',

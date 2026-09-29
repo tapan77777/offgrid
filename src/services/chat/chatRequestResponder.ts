@@ -1,6 +1,7 @@
 import type { OffgridDb } from '../../database';
 import {
   ChatRequestRepo,
+  DeviceRepo,
   UserRepo,
 } from '../../database/repositories';
 import type { CommunicationManager } from '../communication/CommunicationManager';
@@ -165,6 +166,17 @@ function handleIncomingAccept(
       nowIso: now,
     });
   }
+
+  // D-078: mark the accepter's device as a linked peer on the requester's
+  // side too. Done unconditionally on receipt so it survives even if the
+  // outgoing chat_requests row was never persisted (Alice's toUserId=null
+  // path — see SendChatRequestResult.request === null in chatRequestService).
+  DeviceRepo.markLinked(options.db, {
+    deviceId: envelope.originDeviceId,
+    linkedUserId: payload.accepterUserId,
+    nowIso: now,
+  });
+
   const request = ChatRequestRepo.findChatRequestById(
     options.db,
     payload.requestId,

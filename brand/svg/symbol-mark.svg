@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OFFGRID symbol mark. Design master. viewBox 108x108 = Android adaptive-icon
+  canvas. Safe zone: 66x66 centered (a 33..75 box). Design intentionally lets
+  the outermost radar arc extend past the safe zone so square masks read a
+  fuller "radiating" gesture, while the compass ring + arrow stay well inside
+  the safe zone so circular/squircle masks never crop them.
+
+  Palette matches src/theme/colors.ts:
+    ink1000 #07090B  — deepest surface (adaptive background is separate)
+    forest400 #5AA37D — brand strong (compass ring, arrow body)
+    forest300 #88C6A5 — brand bright (outer radar arc glow)
+    ink50   #F4F6F8  — near-white (arrow tip, compass tick)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
+  <defs>
+    <!-- Outer arc uses a soft aqua-green so it reads at small sizes without
+         the "neon" trap. -->
+    <linearGradient id="arcSoft" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#88C6A5" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#5AA37D" stop-opacity="0.85"/>
+    </linearGradient>
+    <linearGradient id="arcMid" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5AA37D" stop-opacity="1"/>
+      <stop offset="1" stop-color="#3E7A5B" stop-opacity="1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ============================================================
+       Outer radar arcs — three concentric, each covering only the
+       top-right sweep. Establishes the "signal outbound" gesture.
+       ============================================================ -->
+  <!-- Arc 3 (outermost). r=44, top-right sweep from ~-80° to +10°. -->
+  <path d="M 61.639 10.437 A 44 44 0 0 1 97.563 45.361"
+        fill="none" stroke="url(#arcSoft)" stroke-width="3.2"
+        stroke-linecap="round" opacity="0.55"/>
+  <!-- Arc 2 (middle). r=36, wider sweep -100° to +25°. -->
+  <path d="M 47.750 18.281 A 36 36 0 0 1 89.719 39.750"
+        fill="none" stroke="url(#arcSoft)" stroke-width="3.2"
+        stroke-linecap="round" opacity="0.78"/>
+  <!-- Arc 1 (inner ping ring). r=28, near-full top hemisphere from
+       -120° to +50°. Brightest — the local ping just leaving. -->
+  <path d="M 40.000 29.373 A 28 28 0 0 1 82.000 30.006"
+        fill="none" stroke="url(#arcMid)" stroke-width="3.6"
+        stroke-linecap="round"/>
+
+  <!-- Two small "acknowledged peer" dots on the outer arc. Reads as
+       "someone else on the network" at the icon scale. -->
+  <circle cx="97.5" cy="45.4" r="2.4" fill="#88C6A5"/>
+  <circle cx="61.6" cy="10.4" r="1.8" fill="#88C6A5" opacity="0.75"/>
+
+  <!-- ============================================================
+       Compass ring — the "you are here" locator. Sits inside the
+       safe zone (r=22 → 44 diameter, well under 66).
+       ============================================================ -->
+  <circle cx="54" cy="54" r="22" fill="none" stroke="#5AA37D" stroke-width="2.4"/>
+  <!-- Tiny cardinal ticks (N/E/S/W). Kept short so they read cleanly
+       at 48px. -->
+  <g stroke="#5AA37D" stroke-width="2" stroke-linecap="round">
+    <line x1="54" y1="30" x2="54" y2="33.5"/>
+    <line x1="78" y1="54" x2="74.5" y2="54"/>
+    <line x1="54" y1="78" x2="54" y2="74.5"/>
+    <line x1="30" y1="54" x2="33.5" y2="54"/>
+  </g>
+
+  <!-- ============================================================
+       Navigation arrow — the central mark. Pointing up-right at ~30°
+       above vertical, i.e. bearing ~030°. That angle deliberately
+       echoes the top-right sweep of the radar arcs so the eye reads
+       "this device is transmitting in that direction."
+       Drawn as a flat chevron with a bright tip and a subtle keel to
+       avoid the "AI generated symmetrical" flatness.
+       ============================================================ -->
+  <g transform="rotate(30 54 54)">
+    <!-- Arrow body: a slim triangle with a notch in the tail so the
+         two "vanes" read individually — classic aviation locator. -->
+    <path d="M 54 40
+             L 62 66
+             L 54 61
+             L 46 66
+             Z"
+          fill="#F4F6F8"/>
+    <!-- Right vane in accent green so the arrow reads directional
+         (not just a triangle). Left vane stays white. -->
+    <path d="M 54 40
+             L 62 66
+             L 54 61
+             Z"
+          fill="#5AA37D"/>
+    <!-- Very thin center keel — separates the two vanes at all sizes. -->
+    <line x1="54" y1="40" x2="54" y2="61"
+          stroke="#0E1215" stroke-width="0.8" stroke-linecap="round"/>
+  </g>
+</svg>

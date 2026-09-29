@@ -15,8 +15,8 @@ export type ConnectionState =
 
 interface ConnectionStatusProps {
   readonly state: ConnectionState;
-  readonly nearbyCount?: number;
-  readonly lastSeenMinutes?: number;
+  readonly nearbyCount?: number | undefined;
+  readonly lastSeenMinutes?: number | undefined;
   readonly testID?: string;
 }
 
